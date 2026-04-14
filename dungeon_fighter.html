@@ -72,12 +72,40 @@ if (!localDeviceId) {
   localDeviceId = 'dev_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   localStorage.setItem('df_device_id', localDeviceId);
 }
+
+// Online leaderboard via JSONBlob
+const BLOB_URL = 'https://jsonblob.com/api/jsonBlob/019d8c6a-eee5-7912-a9c5-8cdffd9f8b65';
+let onlineLeaderboard = [];
+let onlineReady = false;
+
 function loadLeaderboard() {
+  if (onlineReady) return [...onlineLeaderboard];
   try { return JSON.parse(localStorage.getItem('df_leaderboard') || '[]'); } catch(e) { return []; }
 }
 function saveLeaderboard(lb) {
   try { localStorage.setItem('df_leaderboard', JSON.stringify(lb)); } catch(e) {}
+  onlineLeaderboard = [...lb];
+  // Save to online blob (fire and forget)
+  fetch(BLOB_URL, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(lb)
+  }).catch(() => {});
 }
+
+// Fetch online leaderboard on load
+fetch(BLOB_URL)
+  .then(r => r.json())
+  .then(data => {
+    if (Array.isArray(data)) {
+      onlineLeaderboard = data;
+      onlineReady = true;
+      // Also update local cache
+      try { localStorage.setItem('df_leaderboard', JSON.stringify(data)); } catch(e) {}
+    }
+  })
+  .catch(() => {}); // fall back to local if offline
+
 function submitScore(lvl, coinsEarned, weapon, name) {
   const lb = loadLeaderboard();
   const entry = { name: name || 'Anonymous', level: lvl, coins: coinsEarned, weapon, time: formatTime(playTime), date: new Date().toLocaleDateString(), deviceId: localDeviceId };

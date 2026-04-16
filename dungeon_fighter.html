@@ -217,6 +217,7 @@ let adminCode = '';
 let adminLevel = '1';
 let adminWeapon = 0; // weapon tier index
 let adminField = 'none'; // 'level' when typing level
+let adminMode = false;
 let pendingScoreLevel = 0, pendingScoreCoins = 0, pendingScoreWeapon = '';
 let saveFlashTimer = 0; // shows "Game Saved!" message
 
@@ -1346,6 +1347,7 @@ function initLevel() {
 }
 
 function resetGame() {
+  adminMode = false;
   level = 1;
   if (currentMode === 'teamwork') {
     players = [];
@@ -1473,6 +1475,8 @@ function formatTime(s) {
 }
 
 function update(dt) {
+  // Admin mode: infinite coins
+  if (adminMode) coins = 999999;
   // Track play time during active gameplay
   if (gameState === 'playing' || gameState === 'upgrade' || gameState === 'shop') playTime += dt;
   // Always update particles/texts
@@ -1620,9 +1624,11 @@ function update(dt) {
       // START button
       if (mouse.x >= W/2-90 && mouse.x <= W/2+90 && mouse.y >= 460 && mouse.y <= 500) {
         const lvl = Math.max(1, parseInt(adminLevel) || 1);
+        adminMode = true;
         currentMode = 'endless';
         deleteSave();
         resetGame();
+        coins = 999999;
         level = lvl;
         player.weaponTier = adminWeapon;
         const wd = getWeaponData(adminWeapon);
@@ -1725,23 +1731,34 @@ function update(dt) {
 
   if (gameState === 'paused') {
     if (mouseClicked) {
+      const yOff = adminMode ? -100 : 0;
       // Continue button
-      const cx = W/2 - 90, cy = H/2 + 20, cw = 180, ch = 44;
+      const cx = W/2 - 90, cy = H/2 + 20 + yOff, cw = 180, ch = 44;
       if (mouse.x >= cx && mouse.x <= cx+cw && mouse.y >= cy && mouse.y <= cy+ch) {
         gameState = prevGameState;
       }
       // Shop button
-      const sx = W/2 - 90, sy = H/2 + 80, sw = 180, sh = 44;
+      const sx = W/2 - 90, sy = H/2 + 80 + yOff, sw = 180, sh = 44;
       if (mouse.x >= sx && mouse.x <= sx+sw && mouse.y >= sy && mouse.y <= sy+sh) {
         gameState = 'shop';
       }
+      // Admin upgrade buttons
+      if (adminMode) {
+        for (let i = 0; i < 5; i++) {
+          const ubx = 55 + i * 142, uby = sy + 95, ubw = 130, ubh = 34;
+          if (!statCapped(i, player) && mouse.x >= ubx && mouse.x <= ubx+ubw && mouse.y >= uby && mouse.y <= uby+ubh) {
+            applyUpgrade(i, player);
+          }
+        }
+      }
       // Save button
-      const svx = W/2 - 90, svy = H/2 + 150, svw = 180, svh = 40;
+      const svy = adminMode ? sy + 150 : H/2 + 150 + yOff;
+      const svx = W/2 - 90, svw = 180, svh = 40;
       if (mouse.x >= svx && mouse.x <= svx+svw && mouse.y >= svy && mouse.y <= svy+svh) {
         saveGame();
       }
       // Exit to Menu button
-      const ex = W/2 - 90, ey = H/2 + 210, ew = 180, eh = 40;
+      const ex = W/2 - 90, ey = svy + 60, ew = 180, eh = 40;
       if (mouse.x >= ex && mouse.x <= ex+ew && mouse.y >= ey && mouse.y <= ey+eh) {
         gameState = 'start';
       }
@@ -3548,13 +3565,19 @@ function drawPaused() {
   ctx.fillRect(0, 0, W, H);
 
   ctx.textAlign = 'center';
+  const yOff = adminMode ? -100 : 0;
   ctx.fillStyle = '#555'; ctx.font = 'bold 58px monospace';
-  ctx.fillText('PAUSED', W/2 + 3, H/2 - 20);
+  ctx.fillText('PAUSED', W/2 + 3, H/2 - 20 + yOff);
   ctx.fillStyle = '#FFD700'; ctx.font = 'bold 56px monospace';
-  ctx.fillText('PAUSED', W/2, H/2 - 23);
+  ctx.fillText('PAUSED', W/2, H/2 - 23 + yOff);
+
+  if (adminMode) {
+    ctx.fillStyle = '#ff4444'; ctx.font = 'bold 12px monospace';
+    ctx.fillText('ADMIN MODE', W/2, H/2 - 55 + yOff);
+  }
 
   // Continue button
-  const cx = W/2 - 90, cy = H/2 + 20, cw = 180, ch = 44;
+  const cx = W/2 - 90, cy = H/2 + 20 + yOff, cw = 180, ch = 44;
   const cHov = mouse.x >= cx && mouse.x <= cx+cw && mouse.y >= cy && mouse.y <= cy+ch;
   ctx.fillStyle = cHov ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.07)';
   ctx.fillRect(cx, cy, cw, ch);
@@ -3564,7 +3587,7 @@ function drawPaused() {
   ctx.fillText('Continue?', W/2, cy + 28);
 
   // Shop button
-  const sx = W/2 - 90, sy = H/2 + 80, sw = 180, sh = 44;
+  const sx = W/2 - 90, sy = H/2 + 80 + yOff, sw = 180, sh = 44;
   const sHov = mouse.x >= sx && mouse.x <= sx+sw && mouse.y >= sy && mouse.y <= sy+sh;
   ctx.fillStyle = sHov ? 'rgba(100,200,100,0.2)' : 'rgba(255,255,255,0.07)';
   ctx.fillRect(sx, sy, sw, sh);
@@ -3577,8 +3600,27 @@ function drawPaused() {
   ctx.fillStyle = '#FFD700'; ctx.font = 'bold 14px monospace';
   ctx.fillText(`🪙 ${coins} coins`, W/2, sy + 60);
 
+  // Admin upgrade buttons
+  if (adminMode) {
+    ctx.fillStyle = '#ff4444'; ctx.font = 'bold 13px monospace';
+    ctx.fillText('UPGRADES (click to apply)', W/2, sy + 85);
+    const upNames = ['STR +2', 'SPD x1.3', 'ATK x1.3', 'HP +10', 'VAMPIRE +1'];
+    const upColors = ['#ff5555','#55ff88','#5599ff','#ff4488','#cc44ff'];
+    for (let i = 0; i < 5; i++) {
+      const ubx = 55 + i * 142, uby = sy + 95, ubw = 130, ubh = 34;
+      const maxed = statCapped(i, player);
+      const uhov = !maxed && mouse.x >= ubx && mouse.x <= ubx+ubw && mouse.y >= uby && mouse.y <= uby+ubh;
+      ctx.fillStyle = maxed ? 'rgba(255,255,255,0.02)' : uhov ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)';
+      ctx.fillRect(ubx, uby, ubw, ubh);
+      ctx.strokeStyle = maxed ? '#333' : uhov ? upColors[i] : '#555'; ctx.lineWidth = uhov ? 2 : 1;
+      ctx.strokeRect(ubx, uby, ubw, ubh);
+      ctx.fillStyle = maxed ? '#444' : uhov ? upColors[i] : '#aaa'; ctx.font = 'bold 11px monospace';
+      ctx.fillText(maxed ? 'MAXED' : upNames[i], ubx + ubw/2, uby + 22);
+    }
+  }
+
   // Save button
-  const svx = W/2 - 90, svy = H/2 + 150, svw = 180, svh = 40;
+  const svx = W/2 - 90, svy = (adminMode ? sy + 150 : H/2 + 150 + yOff), svw = 180, svh = 40;
   const svHov = mouse.x >= svx && mouse.x <= svx+svw && mouse.y >= svy && mouse.y <= svy+svh;
   ctx.fillStyle = svHov ? 'rgba(100,180,255,0.25)' : 'rgba(255,255,255,0.07)';
   ctx.fillRect(svx, svy, svw, svh);
@@ -3593,7 +3635,7 @@ function drawPaused() {
   }
 
   // Exit to Menu button
-  const ex = W/2 - 90, ey = H/2 + 210, ew = 180, eh = 40;
+  const ex = W/2 - 90, ey = svy + 60, ew = 180, eh = 40;
   const eHov = mouse.x >= ex && mouse.x <= ex+ew && mouse.y >= ey && mouse.y <= ey+eh;
   ctx.fillStyle = eHov ? 'rgba(200,50,50,0.25)' : 'rgba(255,255,255,0.05)';
   ctx.fillRect(ex, ey, ew, eh);

@@ -34,6 +34,26 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mousedown', () => { mouseDown = true; mouseClicked = true; });
 canvas.addEventListener('mouseup', () => { mouseDown = false; });
 document.addEventListener('keydown', e => {
+  // Admin code entry
+  if (gameState === 'adminCode') {
+    if (e.key === 'Escape') { gameState = 'start'; }
+    else if (e.key === 'Backspace') { adminCode = adminCode.slice(0, -1); }
+    else if (e.key === 'Enter') {
+      if (adminCode === 'hihi') { gameState = 'adminPanel'; adminLevel = '1'; adminWeapon = 0; adminField = 'none'; }
+      else { adminCode = ''; } // wrong code, clear
+    }
+    else if (e.key.length === 1 && adminCode.length < 20) { adminCode += e.key; }
+    e.preventDefault();
+    return;
+  }
+  // Admin panel level typing
+  if (gameState === 'adminPanel' && adminField === 'level') {
+    if (e.key === 'Escape' || e.key === 'Enter') { adminField = 'none'; }
+    else if (e.key === 'Backspace') { adminLevel = adminLevel.slice(0, -1); }
+    else if (e.key >= '0' && e.key <= '9' && adminLevel.length < 5) { adminLevel += e.key; }
+    e.preventDefault();
+    return;
+  }
   // Name entry intercepts all printable input
   if (gameState === 'nameEntry') {
     if (e.key === 'Enter') {
@@ -191,6 +211,12 @@ function submitScore(lvl, coinsEarned, weapon, name) {
 let lastEndlessRank = 0; // rank achieved on last death
 let lbPrevState = 'start'; // where to return from leaderboard
 let pendingName = ''; // name being typed in nameEntry state
+
+// --- Admin Panel ---
+let adminCode = '';
+let adminLevel = '1';
+let adminWeapon = 0; // weapon tier index
+let adminField = 'none'; // 'level' when typing level
 let pendingScoreLevel = 0, pendingScoreCoins = 0, pendingScoreWeapon = '';
 let saveFlashTimer = 0; // shows "Game Saved!" message
 
@@ -1557,6 +1583,57 @@ function update(dt) {
       if (hitBtn(566 + off)) {
         lbPrevState = 'start'; gameState = 'leaderboard';
       }
+      if (hitBtn(610 + off)) {
+        adminCode = ''; gameState = 'adminCode';
+      }
+    }
+    return;
+  }
+  if (gameState === 'adminCode') {
+    if (mouseClicked) {
+      // Back button
+      if (mouse.x >= W/2-70 && mouse.x <= W/2+70 && mouse.y >= H-54 && mouse.y <= H-18) {
+        gameState = 'start';
+      }
+    }
+    return;
+  }
+  if (gameState === 'adminPanel') {
+    if (mouseClicked) {
+      // Back button
+      if (mouse.x >= W/2-70 && mouse.x <= W/2+70 && mouse.y >= H-54 && mouse.y <= H-18) {
+        gameState = 'start';
+      }
+      // Level input box
+      if (mouse.x >= W/2-80 && mouse.x <= W/2+80 && mouse.y >= 170 && mouse.y <= 206) {
+        adminField = 'level';
+      } else if (adminField === 'level') {
+        adminField = 'none';
+      }
+      // Weapon buttons
+      for (let i = 0; i < WEAPONS.length; i++) {
+        const bx = 60 + (i % 4) * 175, by = 260 + Math.floor(i / 4) * 60, bw = 160, bh = 48;
+        if (mouse.x >= bx && mouse.x <= bx+bw && mouse.y >= by && mouse.y <= by+bh) {
+          adminWeapon = i;
+        }
+      }
+      // START button
+      if (mouse.x >= W/2-90 && mouse.x <= W/2+90 && mouse.y >= 460 && mouse.y <= 500) {
+        const lvl = Math.max(1, parseInt(adminLevel) || 1);
+        currentMode = 'endless';
+        deleteSave();
+        resetGame();
+        level = lvl;
+        player.weaponTier = adminWeapon;
+        const wd = getWeaponData(adminWeapon);
+        player.weapon = wd.name;
+        player.weaponDamage = wd.damage;
+        initLevel();
+        gameState = 'playing';
+        bannerText = `LEVEL ${level}`;
+        subBannerText = 'ADMIN MODE';
+        bannerTimer = 2.5;
+      }
     }
     return;
   }
@@ -2298,6 +2375,8 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   if (gameState === 'start')        { drawStart();        drawAchievementPopup(); return; }
+  if (gameState === 'adminCode')    { drawAdminCode();    return; }
+  if (gameState === 'adminPanel')   { drawAdminPanel();   return; }
   // teamSelect removed — 2 player only
   if (gameState === 'dead')         { drawDead();         drawAchievementPopup(); return; }
   if (gameState === 'nameEntry')    { drawNameEntry();    return; }
@@ -3639,6 +3718,99 @@ function drawShop() {
   ctx.textAlign = 'left';
 }
 
+function drawAdminCode() {
+  ctx.fillStyle = '#0a0d0a'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 3; ctx.strokeRect(18, 18, W-36, H-36);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff4444'; ctx.font = 'bold 36px monospace';
+  ctx.fillText('ADMIN ACCESS', W/2, 120);
+  ctx.fillStyle = '#888'; ctx.font = '14px monospace';
+  ctx.fillText('Enter the secret code:', W/2, 170);
+
+  // Code input box
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(W/2-120, 200, 240, 44);
+  ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2;
+  ctx.strokeRect(W/2-120, 200, 240, 44);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 24px monospace';
+  const masked = '*'.repeat(adminCode.length);
+  ctx.fillText(masked + (Math.floor(Date.now()/500)%2 === 0 ? '|' : ''), W/2, 230);
+
+  ctx.fillStyle = '#555'; ctx.font = '12px monospace';
+  ctx.fillText('Press ENTER to submit  |  ESC to go back', W/2, 280);
+
+  // Back button
+  const bhov = mouse.x >= W/2-70 && mouse.x <= W/2+70 && mouse.y >= H-54 && mouse.y <= H-18;
+  ctx.fillStyle = bhov ? 'rgba(255,60,60,0.2)' : 'rgba(255,255,255,0.06)';
+  ctx.fillRect(W/2-70, H-54, 140, 36);
+  ctx.strokeStyle = bhov ? '#ff4444' : '#444'; ctx.lineWidth = bhov ? 2 : 1;
+  ctx.strokeRect(W/2-70, H-54, 140, 36);
+  ctx.fillStyle = bhov ? '#ff4444' : '#888'; ctx.font = 'bold 14px monospace';
+  ctx.fillText('← BACK', W/2, H-30);
+  ctx.textAlign = 'left';
+}
+
+function drawAdminPanel() {
+  ctx.fillStyle = '#0a0d0a'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 3; ctx.strokeRect(18, 18, W-36, H-36);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff4444'; ctx.font = 'bold 30px monospace';
+  ctx.fillText('ADMIN PANEL', W/2, 80);
+
+  // Level input
+  ctx.fillStyle = '#aaa'; ctx.font = 'bold 14px monospace';
+  ctx.fillText('STARTING LEVEL:', W/2, 162);
+  const lvlFocused = adminField === 'level';
+  ctx.fillStyle = lvlFocused ? 'rgba(255,68,68,0.15)' : 'rgba(255,255,255,0.06)';
+  ctx.fillRect(W/2-80, 170, 160, 36);
+  ctx.strokeStyle = lvlFocused ? '#ff4444' : '#555'; ctx.lineWidth = lvlFocused ? 2 : 1;
+  ctx.strokeRect(W/2-80, 170, 160, 36);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 20px monospace';
+  const cursor = lvlFocused && Math.floor(Date.now()/500)%2 === 0 ? '|' : '';
+  ctx.fillText(adminLevel + cursor, W/2, 196);
+  ctx.fillStyle = '#555'; ctx.font = '10px monospace';
+  ctx.fillText('Click to type  |  Press ENTER when done', W/2, 222);
+
+  // Weapon selection
+  ctx.fillStyle = '#aaa'; ctx.font = 'bold 14px monospace';
+  ctx.fillText('SELECT WEAPON:', W/2, 252);
+
+  for (let i = 0; i < WEAPONS.length; i++) {
+    const bx = 60 + (i % 4) * 175, by = 260 + Math.floor(i / 4) * 60, bw = 160, bh = 48;
+    const selected = adminWeapon === i;
+    const hov = mouse.x >= bx && mouse.x <= bx+bw && mouse.y >= by && mouse.y <= by+bh;
+    ctx.fillStyle = selected ? 'rgba(255,68,68,0.25)' : hov ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = selected ? '#ff4444' : hov ? '#888' : '#444'; ctx.lineWidth = selected ? 2 : 1;
+    ctx.strokeRect(bx, by, bw, bh);
+    ctx.fillStyle = selected ? '#ff4444' : hov ? '#fff' : '#aaa'; ctx.font = 'bold 12px monospace';
+    ctx.fillText(WEAPONS[i].name, bx + bw/2, by + 20);
+    ctx.fillStyle = '#666'; ctx.font = '10px monospace';
+    ctx.fillText(`${WEAPONS[i].damage} dmg`, bx + bw/2, by + 38);
+  }
+
+  // START button
+  const shov = mouse.x >= W/2-90 && mouse.x <= W/2+90 && mouse.y >= 460 && mouse.y <= 500;
+  ctx.fillStyle = shov ? 'rgba(255,68,68,0.3)' : 'rgba(255,68,68,0.1)';
+  ctx.fillRect(W/2-90, 460, 180, 40);
+  ctx.strokeStyle = shov ? '#ff6666' : '#ff4444'; ctx.lineWidth = 2;
+  ctx.strokeRect(W/2-90, 460, 180, 40);
+  ctx.fillStyle = shov ? '#fff' : '#ff4444'; ctx.font = 'bold 18px monospace';
+  ctx.fillText('▶ START GAME', W/2, 486);
+
+  // Back button
+  const bhov = mouse.x >= W/2-70 && mouse.x <= W/2+70 && mouse.y >= H-54 && mouse.y <= H-18;
+  ctx.fillStyle = bhov ? 'rgba(255,60,60,0.2)' : 'rgba(255,255,255,0.06)';
+  ctx.fillRect(W/2-70, H-54, 140, 36);
+  ctx.strokeStyle = bhov ? '#ff4444' : '#444'; ctx.lineWidth = bhov ? 2 : 1;
+  ctx.strokeRect(W/2-70, H-54, 140, 36);
+  ctx.fillStyle = bhov ? '#ff4444' : '#888'; ctx.font = 'bold 14px monospace';
+  ctx.fillText('← BACK', W/2, H-30);
+  ctx.textAlign = 'left';
+}
+
 function drawStart() {
   ctx.fillStyle = '#0d0d1a'; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = '#3d0000'; ctx.lineWidth = 4; ctx.strokeRect(18, 18, W-36, H-36);
@@ -3678,6 +3850,7 @@ function drawStart() {
   menuBtn('TEAMWORK',      478 + off, '100,255,100',   '#66ff66');
   menuBtn('ACHIEVEMENTS',  522 + off, '180,130,255',   '#bb88ff');
   menuBtn('LEADERBOARD',   566 + off, '255,200,50',    '#FFD700');
+  menuBtn('ADMIN',         610 + off, '255,80,80',     '#ff4444');
 
   // Sub-labels
   ctx.fillStyle = '#555'; ctx.font = '10px monospace';

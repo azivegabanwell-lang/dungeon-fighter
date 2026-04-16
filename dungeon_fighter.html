@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Dungeon Fighter</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; touch-action: none; }
 canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
 </style>
 </head>
@@ -64,6 +65,77 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// --- Mobile Touch Controls ---
+let touchMoveId = null, touchMoveOrigin = null, touchMoveDir = { x: 0, y: 0 };
+let touchAttackId = null;
+const isMobile = 'ontouchstart' in window;
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  for (const t of e.changedTouches) {
+    const tx = (t.clientX - r.left) * (W / r.width);
+    const ty = (t.clientY - r.top) * (H / r.height);
+    if (gameState !== 'playing') {
+      // Non-playing states: treat touch as click
+      mouse.x = tx; mouse.y = ty;
+      mouseClicked = true; mouseDown = true;
+      return;
+    }
+    if (tx < W / 2) {
+      // Left side — movement joystick
+      touchMoveId = t.identifier;
+      touchMoveOrigin = { x: tx, y: ty };
+      touchMoveDir = { x: 0, y: 0 };
+    } else {
+      // Right side — attack
+      touchAttackId = t.identifier;
+      keys[' '] = true;
+      mouse.x = tx; mouse.y = ty;
+      mouseClicked = true; mouseDown = true;
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  for (const t of e.changedTouches) {
+    const tx = (t.clientX - r.left) * (W / r.width);
+    const ty = (t.clientY - r.top) * (H / r.height);
+    if (t.identifier === touchMoveId && touchMoveOrigin) {
+      const dx = tx - touchMoveOrigin.x;
+      const dy = ty - touchMoveOrigin.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 10) {
+        touchMoveDir = { x: dx / dist, y: dy / dist };
+      } else {
+        touchMoveDir = { x: 0, y: 0 };
+      }
+    }
+    if (t.identifier === touchAttackId) {
+      mouse.x = tx; mouse.y = ty;
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === touchMoveId) {
+      touchMoveId = null; touchMoveOrigin = null; touchMoveDir = { x: 0, y: 0 };
+    }
+    if (t.identifier === touchAttackId) {
+      touchAttackId = null; keys[' '] = false; mouseDown = false;
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', e => {
+  touchMoveId = null; touchMoveOrigin = null; touchMoveDir = { x: 0, y: 0 };
+  touchAttackId = null; keys[' '] = false; mouseDown = false;
+}, { passive: false });
 
 // --- Leaderboard ---
 // Unique device ID so you can only delete your own scores
@@ -386,6 +458,7 @@ const player = {
   weaponUpgradeLevel: 0,
   facing: 1,
   invincible: 0,
+  vampireSteal: 0,
   get speed() { return this.baseSpeed * this.speedMult; },
   get attackSpeed() { return this.baseAttackSpeed * this.attackSpeedMult; },
   get damage() { return this.weaponDamage + this.strengthBonus; },
@@ -423,6 +496,7 @@ function createPlayer(index) {
     permaDead: false,
     reviveProgress: 0,
     playerIndex: index,
+    vampireSteal: 0,
     get speed() { return this.baseSpeed * this.speedMult; },
     get attackSpeed() { return this.baseAttackSpeed * this.attackSpeedMult; },
     get damage() { return this.weaponDamage + this.strengthBonus; },
@@ -590,7 +664,7 @@ const WEAPONS = [
   { name: 'Flaming Sword',   damage: 12, color: '#FF6600', length: 40, glow: '#FF3300', cost: 80,  ability: 'burn',      abilityDesc: 'Burns enemies (DoT)'   },
   { name: 'Ice Blade',       damage: 11, color: '#88EEFF', length: 44, glow: '#00AAFF', cost: 110, ability: 'slow',      abilityDesc: 'Slows enemies 50%'     },
   { name: 'Lightning Sword', damage: 15, color: '#FFFF66', length: 40, glow: '#FFEE00', cost: 10000, ability: 'chain',   abilityDesc: 'Chains to 2 enemies'   },
-  { name: 'Poison Scythe',   damage: 13, color: '#55FF55', length: 56, glow: '#00BB00', cost: 1500, ability: 'poison',   abilityDesc: 'Poisons enemies (DoT)' },
+  { name: 'Poison Scythe',   damage: 13, color: '#55FF55', length: 42, glow: '#00BB00', cost: 1500, ability: 'poison',   abilityDesc: 'Poisons enemies (DoT)' },
   { name: 'War Hammer',      damage: 22, color: '#C8C8D0', length: 36, glow: '#8888aa', cost: 2500, ability: 'knockback', abilityDesc: 'Knocks back enemies'  },
   { name: 'Legendary Blade', damage: 30, color: '#FFD700', length: 52, glow: '#FFD700', cost: 5000, ability: 'shockwave', abilityDesc: 'Golden shockwave'      },
 ];
@@ -599,6 +673,7 @@ function getWeaponData(tier) { return WEAPONS[Math.min(Math.max(tier, 0), WEAPON
 // Shop items list
 const SHOP_ITEMS = [
   { name: 'Health Potion',   desc: 'Restore 15 HP',           icon: '🧪', cost: 20,  color: '#ff4488' },
+  { name: 'Revive Potion',   desc: 'Full heal / Revive ally', icon: '💚', cost: 100, color: '#44ff88' },
   { name: 'Battle Axe',      desc: '8 dmg  | Wide swing',      icon: '🪓',  cost: 40,  color: '#CD8A3A', weaponTier: 1 },
   { name: 'Flaming Sword',   desc: '12 dmg | Burns (DoT)',      icon: '🔥',  cost: 80,  color: '#FF6600', weaponTier: 2 },
   { name: 'Ice Blade',       desc: '11 dmg | Slows 50%',       icon: '❄',  cost: 110, color: '#88EEFF', weaponTier: 3 },
@@ -663,7 +738,7 @@ function spawnBoss() {
     w: 40, h: 52,
     hp: bossHp, maxHp: bossHp,
     speed: 1.2 + level * 0.02, baseSpeed: 1.2 + level * 0.02,
-    damage: 10 + Math.floor(level / 20) * 10,
+    damage: 5 + Math.floor(level / 20) * 5,
     atkCooldown: 1.0,
     wobble: 0, type: bossType, facing: -1,
     isBoss: true, bossName: bossNames[bossType],
@@ -1225,21 +1300,14 @@ function initLevel() {
       { x: W/2 + 60, y: H/2 + 40 },
     ];
     players.forEach((p, i) => {
-      if (p.permaDead) return; // permanently dead, skip
+      if (p.permaDead) return;
+      if (p.downed) return; // downed players stay down — teammate must revive
+      if (!p.alive || p.hp <= 0) return;
       const pos = spawnPositions[i];
       p.x = pos.x; p.y = pos.y;
       p.attackCooldown = 0;
       p.isAttacking = false;
       p.invincible = 0;
-      // Respawn downed players with half HP when level clears
-      if (p.downed || !p.alive || p.hp <= 0) {
-        p.alive = true;
-        p.downed = false;
-        p.downTimer = 0;
-        p.reviveProgress = 0;
-        p.hp = Math.max(1, Math.floor(p.maxHp / 2));
-        p.invincible = 1.5;
-      }
     });
   } else {
     player.x = W/2; player.y = H/2;
@@ -1266,6 +1334,7 @@ function resetGame() {
     player.weaponDamage = 5; player.strengthBonus = 0;
     player.baseAttackSpeed = 1; player.attackSpeedMult = 1;
     player.weapon = 'Sword'; player.weaponTier = 0; player.weaponUpgradeLevel = 0; player.facing = 1;
+    player.vampireSteal = 0;
     players = [player];
   }
   coins = 0; playTime = 0;
@@ -1281,11 +1350,13 @@ function resetGame() {
 const CAP_STRENGTH_BONUS = 20;   // max +20 bonus damage
 const CAP_SPEED_MULT     = 2.8;  // max speed = 2.5 * 2.8 = 7.0
 const CAP_ATK_SPD_MULT   = 5.0;  // max 5.0 attacks/sec
+const CAP_VAMPIRE_STEAL = 10; // max +10 HP per level clear
 function statCapped(i, p) {
   const tgt = p || player;
   if (i === 0) return tgt.strengthBonus >= CAP_STRENGTH_BONUS;
   if (i === 1) return tgt.speedMult     >= CAP_SPEED_MULT;
   if (i === 2) return tgt.attackSpeedMult >= CAP_ATK_SPD_MULT;
+  if (i === 4) return tgt.vampireSteal >= CAP_VAMPIRE_STEAL;
   return false; // Max HP has no cap
 }
 
@@ -1295,6 +1366,7 @@ function applyUpgrade(i, p) {
   if (i === 0) tgt.strengthBonus = Math.min(tgt.strengthBonus + 2, CAP_STRENGTH_BONUS);
   else if (i === 1) tgt.speedMult = Math.min(tgt.speedMult * 1.3, CAP_SPEED_MULT);
   else if (i === 2) tgt.attackSpeedMult = Math.min(tgt.attackSpeedMult * 1.3, CAP_ATK_SPD_MULT);
+  else if (i === 4) tgt.vampireSteal = Math.min(tgt.vampireSteal + 1, CAP_VAMPIRE_STEAL);
   else { tgt.maxHp += 10; tgt.hp = Math.min(tgt.hp + 10, tgt.maxHp); }
 }
 
@@ -1302,6 +1374,14 @@ function canBuyItem(item, p) {
   const tgt = p || player;
   if (item.weaponTier !== undefined) return tgt.weaponTier !== item.weaponTier;
   if (item.name === 'Health Potion') return tgt.hp < tgt.maxHp;
+  if (item.name === 'Revive Potion') {
+    if (currentMode === 'teamwork') {
+      // Can buy if: target is at less than full HP, OR any teammate is downed/permaDead
+      const anyDowned = players.some(pp => pp.downed || pp.permaDead);
+      return tgt.hp < tgt.maxHp || anyDowned;
+    }
+    return tgt.hp < tgt.maxHp; // solo: acts as full heal
+  }
   return true;
 }
 
@@ -1315,6 +1395,25 @@ function applyShopItem(item, p) {
     tgt.weaponUpgradeLevel = 0;
   } else if (item.name === 'Health Potion') {
     tgt.hp = Math.min(tgt.hp + 15, tgt.maxHp);
+  } else if (item.name === 'Revive Potion') {
+    if (currentMode === 'teamwork') {
+      // Revive the first downed/permaDead teammate, or full heal self
+      const deadAlly = players.find(pp => pp !== tgt && (pp.downed || pp.permaDead));
+      if (deadAlly) {
+        deadAlly.permaDead = false;
+        deadAlly.downed = false;
+        deadAlly.alive = true;
+        deadAlly.hp = deadAlly.maxHp;
+        deadAlly.downTimer = 0;
+        deadAlly.reviveProgress = 0;
+        deadAlly.invincible = 2.0;
+        spawnParticles(deadAlly.x, deadAlly.y, '#44ff88', 20, 3);
+      } else {
+        tgt.hp = tgt.maxHp; // full heal self if no one to revive
+      }
+    } else {
+      tgt.hp = tgt.maxHp; // solo: full heal
+    }
   }
 }
 
@@ -1631,8 +1730,8 @@ function update(dt) {
     if (mouseClicked) {
       const upgradePlayer = (currentMode === 'teamwork' && teamUpgradeQueue.length > 0)
         ? players[teamUpgradeQueue[0]] : player;
-      for (let i = 0; i < 4; i++) {
-        const bx = 22 + i * 192, by = 235, bw = 178, bh = 170;
+      for (let i = 0; i < 5; i++) {
+        const bx = 10 + i * 156, by = 235, bw = 148, bh = 170;
         if (!statCapped(i, upgradePlayer) && mouse.x >= bx && mouse.x <= bx+bw && mouse.y >= by && mouse.y <= by+bh) {
           applyUpgrade(i, upgradePlayer);
           if (currentMode === 'teamwork') {
@@ -1743,6 +1842,20 @@ function update(dt) {
     if ((currentMode === 'endless' || currentMode === 'teamwork') && level > achStats.endlessLevel) {
       achStats.endlessLevel = level; checkAchievements();
     }
+    // Vampire life steal on level clear
+    if (currentMode === 'teamwork') {
+      players.forEach(p => {
+        if (p.alive && !p.downed && p.vampireSteal > 0) {
+          const heal = p.vampireSteal;
+          p.hp = Math.min(p.hp + heal, p.maxHp);
+          addText(p.x, p.y - 30, `+${heal} 🧛`, '#ff44aa');
+        }
+      });
+    } else if (player.vampireSteal > 0) {
+      const heal = player.vampireSteal;
+      player.hp = Math.min(player.hp + heal, player.maxHp);
+      addText(player.x, player.y - 30, `+${heal} 🧛`, '#ff44aa');
+    }
 
     if (currentMode === 'story') {
       if (done % 10 === 0) {
@@ -1774,14 +1887,7 @@ function update(dt) {
         });
         particles = []; shockwaves = []; lightningEffects = []; deathAnims = [];
         spawnBoss();
-        // Respawn downed (non-permaDead) players for boss fight
-        players.forEach(p => {
-          if (p.permaDead) return;
-          if (p.downed || !p.alive || p.hp <= 0) {
-            p.alive = true; p.downed = false; p.downTimer = 0; p.reviveProgress = 0;
-            p.hp = Math.max(1, Math.floor(p.maxHp / 2)); p.invincible = 1.5;
-          }
-        });
+        // Downed players stay down — teammate must revive them
         gameState = 'playing';
         bannerText = '⚠ BOSS FIGHT ⚠';
         subBannerText = monsters[0].bossName;
@@ -1828,7 +1934,10 @@ function updatePlayer(dt) {
   if (keys['s'] || keys['S'] || keys['ArrowDown'])   dy += 1;
   if (keys['a'] || keys['A'] || keys['ArrowLeft'])   dx -= 1;
   if (keys['d'] || keys['D'] || keys['ArrowRight'])  dx += 1;
-  if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  // Mobile touch joystick
+  if (touchMoveId !== null) { dx += touchMoveDir.x; dy += touchMoveDir.y; }
+  const mag = Math.hypot(dx, dy);
+  if (mag > 1) { dx /= mag; dy /= mag; }
 
   player.x = Math.max(ROOM.x + player.w/2, Math.min(ROOM.x + ROOM.w - player.w/2, player.x + dx * player.speed));
   player.y = Math.max(ROOM.y + player.h/2, Math.min(ROOM.y + ROOM.h - player.h/2, player.y + dy * player.speed));
@@ -1988,7 +2097,7 @@ function applyHitTeam(m, attacker, ability, color, chainTargets) {
   if (ability === 'knockback') {
     const dx = m.x - attacker.x, dy = m.y - attacker.y;
     const d = Math.hypot(dx, dy) || 1;
-    m.kbVx = (dx/d) * 12; m.kbVy = (dy/d) * 12;
+    m.kbVx = (dx/d) * 6; m.kbVy = (dy/d) * 6;
     spawnParticles(m.x, m.y, '#aaaaaa', 8, 4);
   }
   if (ability === 'chain') chainTargets.push({ x: m.x, y: m.y });
@@ -2021,7 +2130,7 @@ function applyHit(m, dmg, ability, color, chainTargets) {
   if (ability === 'knockback') {
     const dx = m.x - player.x, dy = m.y - player.y;
     const d = Math.hypot(dx, dy) || 1;
-    m.kbVx = (dx/d) * 12; m.kbVy = (dy/d) * 12;
+    m.kbVx = (dx/d) * 6; m.kbVy = (dy/d) * 6;
     spawnParticles(m.x, m.y, '#aaaaaa', 8, 4);
   }
   if (ability === 'chain') chainTargets.push({ x: m.x, y: m.y });
@@ -2156,8 +2265,8 @@ function updateMonsters(dt) {
     if (m.atkCooldown > 0) m.atkCooldown -= dt;
     const atkDist = m.isBoss ? 50 : 28;
     const dmgScale = Math.floor(level / 20) * 3;
-    const bossDmgScale = Math.floor(level / 10) * 10;
-    const atkDmg   = m.isBoss ? 10 + bossDmgScale : 1 + dmgScale;
+    const bossDmgScale = Math.floor(level / 20) * 5;
+    const atkDmg   = m.isBoss ? 5 + bossDmgScale : 1 + dmgScale;
     // Attack nearest player in range
     if (currentMode === 'teamwork') {
       players.forEach(p => {
@@ -2322,6 +2431,16 @@ function draw() {
 
   drawHUD();
   drawAchievementPopup();
+
+  // Mobile joystick overlay
+  if (isMobile && touchMoveOrigin && gameState === 'playing') {
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(touchMoveOrigin.x, touchMoveOrigin.y, 40, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(touchMoveOrigin.x + touchMoveDir.x * 30, touchMoveOrigin.y + touchMoveDir.y * 30, 14, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
   if (bannerTimer > 0 && gameState === 'playing') {
     const a = Math.min(bannerTimer, 1);
@@ -3307,10 +3426,11 @@ function drawUpgrade() {
     { name:'SPEED',        icon:'💨', desc:'1.3x Move Speed',   detail:`${upgradeTarget.speed.toFixed(1)} -> ${(upgradeTarget.speed*1.3).toFixed(1)} spd`,       color:'#55ff88', cap:`MAX: ${(upgradeTarget.baseSpeed*CAP_SPEED_MULT).toFixed(1)} spd` },
     { name:'ATK SPEED',    icon:'⚡', desc:'1.3x Attack Rate',  detail:`${upgradeTarget.attackSpeed.toFixed(2)} -> ${(upgradeTarget.attackSpeed*1.3).toFixed(2)}/s`, color:'#5599ff', cap:`MAX: ${CAP_ATK_SPD_MULT.toFixed(1)}/s` },
     { name:'MAX HP',       icon:'❤', desc:'+10 Max HP',         detail:`${upgradeTarget.maxHp} -> ${upgradeTarget.maxHp+10} HP`, color:'#ff4488', cap:'NO CAP' },
+    { name:'VAMPIRE',      icon:'🧛', desc:`+1 Life Steal`,     detail:`${upgradeTarget.vampireSteal} -> ${upgradeTarget.vampireSteal+1} HP/lvl`, color:'#cc44ff', cap:`MAX: +${CAP_VAMPIRE_STEAL}/lvl` },
   ];
 
   opts.forEach((opt, i) => {
-    const bx = 22 + i * 192, by = 235, bw = 178, bh = 170;
+    const bx = 10 + i * 156, by = 235, bw = 148, bh = 170;
     const maxed   = statCapped(i, upgradeTarget);
     const hovered = !maxed && mouse.x >= bx && mouse.x <= bx+bw && mouse.y >= by && mouse.y <= by+bh;
 

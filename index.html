@@ -2701,9 +2701,16 @@ function drawPlayerWithColors(p, colors) {
 function drawWeaponFor(p, px, py) {
   const wd = getWeaponData(p.weaponTier);
   ctx.save();
-  ctx.translate(px, py - 2);
-  const angle = p.isAttacking ? p.attackAngle : (p.facing > 0 ? -0.3 : Math.PI + 0.3);
-  ctx.rotate(angle);
+  // Position weapon at the hand (arm on the facing side)
+  const handOffsetX = p.facing > 0 ? 7 : -7;
+  ctx.translate(px + handOffsetX, py - 6);
+  if (p.isAttacking) {
+    ctx.rotate(p.attackAngle);
+  } else {
+    // Mirror weapon for left-facing so blade stays pointing up
+    if (p.facing < 0) ctx.scale(-1, 1);
+    ctx.rotate(-0.3);
+  }
   if (wd.glow) { ctx.shadowColor = wd.glow; ctx.shadowBlur = 14; }
   const len = wd.length;
 

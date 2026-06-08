@@ -138,22 +138,22 @@
     <button class="tower-btn" data-tower="laser">
       <b>Laser Turret</b>
       <small>Fast, low damage</small>
-      <small>Cost: 40</small>
+      <small class="cost-label">Cost: 40</small>
     </button>
     <button class="tower-btn" data-tower="missile">
       <b>Missile Bay</b>
       <small>Slow, splash damage</small>
-      <small>Cost: 80</small>
+      <small class="cost-label">Cost: 80</small>
     </button>
     <button class="tower-btn" data-tower="plasma">
       <b>Plasma Cannon</b>
       <small>Medium, slows enemies</small>
-      <small>Cost: 120</small>
+      <small class="cost-label">Cost: 120</small>
     </button>
     <button class="tower-btn" data-tower="tesla">
       <b>Tesla Coil</b>
       <small>Chain lightning</small>
-      <small>Cost: 200</small>
+      <small class="cost-label">Cost: 200</small>
     </button>
 
     <h3>SELECTED</h3>
@@ -222,7 +222,13 @@ let state = {
   mouseX: 0,
   mouseY: 0,
   stars: [],
+  purchaseCounts: { laser: 0, missile: 0, plasma: 0, tesla: 0 },
 };
+
+const COST_MULT = 1.0555;
+function currentCost(type) {
+  return Math.floor(TOWER_TYPES[type].cost * Math.pow(COST_MULT, state.purchaseCounts[type]));
+}
 
 // ============================================================
 // TOWER DEFINITIONS
@@ -530,7 +536,7 @@ cv.addEventListener('contextmenu', (e) => {
 document.querySelectorAll('.tower-btn[data-tower]').forEach(btn => {
   btn.addEventListener('click', () => {
     const type = btn.dataset.tower;
-    if (state.money < TOWER_TYPES[type].cost) return;
+    if (state.money < currentCost(type)) return;
     if (state.selectedTowerType === type) {
       state.selectedTowerType = null;
       btn.classList.remove('selected');
@@ -598,7 +604,8 @@ document.getElementById('restartBtn').addEventListener('click', () => {
 function tryPlaceTower(cx, cy) {
   const type = state.selectedTowerType;
   const def = TOWER_TYPES[type];
-  if (state.money < def.cost) return;
+  const cost = currentCost(type);
+  if (state.money < cost) return;
   if (state.grid[cy][cx] !== 0) return;  // can't build on asteroid, path, or tower
 
   // Open mode: ensure we don't fully block enemies
@@ -631,7 +638,7 @@ function tryPlaceTower(cx, cy) {
     state.grid[cy][cx] = 2;
   }
 
-  state.money -= def.cost;
+  state.money -= cost;
   state.towers.push({
     type, cellX: cx, cellY: cy,
     x: cx * CELL + CELL/2, y: cy * CELL + CELL/2,
@@ -642,11 +649,12 @@ function tryPlaceTower(cx, cy) {
     level: 1,
     angle: 0,
     targetAngle: 0,
-    totalSpent: def.cost,
+    totalSpent: cost,
   });
+  state.purchaseCounts[type]++;
 
   // If we can't afford another, deselect
-  if (state.money < def.cost) {
+  if (state.money < currentCost(type)) {
     state.selectedTowerType = null;
     document.querySelectorAll('.tower-btn[data-tower]').forEach(b => b.classList.remove('selected'));
   }
@@ -995,7 +1003,7 @@ function draw() {
     const cx = Math.floor(state.mouseX / CELL);
     const cy = Math.floor(state.mouseY / CELL);
     if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) {
-      const valid = state.grid[cy][cx] === 0 && state.money >= TOWER_TYPES[state.selectedTowerType].cost;
+      const valid = state.grid[cy][cx] === 0 && state.money >= currentCost(state.selectedTowerType);
       ctx.fillStyle = valid ? 'rgba(80, 255, 120, 0.25)' : 'rgba(255, 80, 80, 0.25)';
       ctx.fillRect(cx * CELL, cy * CELL, CELL, CELL);
       // range preview
@@ -1303,9 +1311,12 @@ function updateHUD() {
   document.getElementById('lives').textContent = state.lives;
   document.getElementById('wave').textContent = state.wave;
 
-  // disable unaffordable towers
+  // refresh per-button cost label + affordability
   document.querySelectorAll('.tower-btn[data-tower]').forEach(b => {
-    const cost = TOWER_TYPES[b.dataset.tower].cost;
+    const type = b.dataset.tower;
+    const cost = currentCost(type);
+    const lbl = b.querySelector('.cost-label');
+    if (lbl) lbl.textContent = 'Cost: ' + cost;
     if (state.money < cost) b.classList.add('disabled');
     else b.classList.remove('disabled');
   });
@@ -1360,6 +1371,7 @@ function startGame(mode) {
   state.won = false;
   state.waveActive = false;
   state.spawnQueue = [];
+  state.purchaseCounts = { laser: 0, missile: 0, plasma: 0, tesla: 0 };
 
   document.querySelectorAll('.tower-btn[data-tower]').forEach(b => b.classList.remove('selected'));
   document.getElementById('waveBtn').disabled = false;

@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Space Defense</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #000;
+    color: #b8f0ff;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  #gameWrap {
+    position: relative;
+    width: 1100px;
+    height: 700px;
+    background: #050818;
+    border: 2px solid #2af;
+    box-shadow: 0 0 40px #1ae;
+  }
+  canvas {
+    display: block;
+    background: linear-gradient(180deg, #02030c 0%, #050a22 100%);
+  }
+  #ui {
+    position: absolute;
+    top: 0; left: 900px;
+    width: 200px;
+    height: 700px;
+    background: #06102a;
+    border-left: 2px solid #2af;
+    padding: 12px;
+    color: #aef;
+  }
+  .stat { font-size: 14px; margin-bottom: 4px; }
+  .stat span { color: #7fffd4; }
+  h3 { color: #5cf; margin: 12px 0 6px; border-bottom: 1px solid #2af; padding-bottom: 2px; font-size: 13px; }
+  .tower-btn {
+    width: 100%;
+    background: #0a1a3e;
+    border: 1px solid #2af;
+    color: #aef;
+    padding: 8px;
+    margin: 4px 0;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    text-align: left;
+    transition: all 0.15s;
+  }
+  .tower-btn:hover { background: #16306a; box-shadow: 0 0 8px #2af; }
+  .tower-btn.selected { background: #1f4dab; box-shadow: 0 0 12px #5cf; }
+  .tower-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+  .tower-btn b { color: #fff; display: block; font-size: 13px; }
+  .tower-btn small { color: #7af; }
+  #waveBtn {
+    width: 100%;
+    background: #2a0;
+    border: 1px solid #5f0;
+    color: #fff;
+    padding: 10px;
+    margin-top: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  #waveBtn:hover { background: #4c0; }
+  #waveBtn:disabled { background: #444; border-color: #666; cursor: not-allowed; }
+
+  /* Overlay screens */
+  .overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 1100px;
+    height: 700px;
+    background: rgba(2, 5, 20, 0.92);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    font-size: 64px;
+    color: #5cf;
+    text-shadow: 0 0 20px #2af, 0 0 40px #08f;
+    margin-bottom: 8px;
+    letter-spacing: 4px;
+  }
+  .overlay h2 {
+    font-size: 22px;
+    color: #7fffd4;
+    margin-bottom: 40px;
+    letter-spacing: 2px;
+  }
+  .mode-btn {
+    background: linear-gradient(135deg, #0a1a3e, #16306a);
+    border: 2px solid #2af;
+    color: #aef;
+    padding: 24px 40px;
+    margin: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 20px;
+    width: 380px;
+    transition: all 0.2s;
+  }
+  .mode-btn:hover {
+    background: linear-gradient(135deg, #16306a, #2150a0);
+    box-shadow: 0 0 20px #5cf;
+    transform: translateY(-2px);
+  }
+  .mode-btn b { display: block; font-size: 24px; color: #fff; margin-bottom: 6px; }
+  .mode-btn small { color: #7af; font-size: 13px; line-height: 1.5; }
+  .end-msg { font-size: 36px; color: #fff; margin-bottom: 20px; }
+  .end-msg.win { color: #5f5; text-shadow: 0 0 20px #2f0; }
+  .end-msg.lose { color: #f55; text-shadow: 0 0 20px #f00; }
+</style>
+</head>
+<body>
+<div id="gameWrap">
+  <canvas id="game" width="900" height="700"></canvas>
+
+  <div id="ui">
+    <div class="stat">CREDITS: <span id="money">100</span></div>
+    <div class="stat">LIVES: <span id="lives">20</span></div>
+    <div class="stat">WAVE: <span id="wave">0</span>/15</div>
+
+    <h3>BUILD TURRET</h3>
+    <button class="tower-btn" data-tower="laser">
+      <b>Laser Turret</b>
+      <small>Fast, low damage</small>
+      <small>Cost: 40</small>
+    </button>
+    <button class="tower-btn" data-tower="missile">
+      <b>Missile Bay</b>
+      <small>Slow, splash damage</small>
+      <small>Cost: 80</small>
+    </button>
+    <button class="tower-btn" data-tower="plasma">
+      <b>Plasma Cannon</b>
+      <small>Medium, slows enemies</small>
+      <small>Cost: 120</small>
+    </button>
+    <button class="tower-btn" data-tower="tesla">
+      <b>Tesla Coil</b>
+      <small>Chain lightning</small>
+      <small>Cost: 200</small>
+    </button>
+
+    <h3>SELECTED</h3>
+    <div id="selInfo" style="font-size:12px;min-height:60px;color:#7af;">Click a turret to inspect.</div>
+    <button id="upgradeBtn" class="tower-btn" style="display:none;">Upgrade</button>
+    <button id="sellBtn" class="tower-btn" style="display:none;">Sell</button>
+
+    <button id="waveBtn">START WAVE</button>
+  </div>
+
+  <!-- Title / Mode Select -->
+  <div class="overlay" id="titleScreen">
+    <h1>SPACE DEFENSE</h1>
+    <h2>SELECT BATTLE MODE</h2>
+    <button class="mode-btn" data-mode="path">
+      <b>FIXED CORRIDOR</b>
+      <small>Aliens follow a set winding path through the asteroid field.<br>Classic tower defense. Build turrets on open ground.</small>
+    </button>
+    <button class="mode-btn" data-mode="open">
+      <b>OPEN FIELD</b>
+      <small>Aliens find their own path to your base.<br>Place turrets anywhere — they block movement. Be careful!</small>
+    </button>
+  </div>
+
+  <!-- End screen -->
+  <div class="overlay hidden" id="endScreen">
+    <div class="end-msg" id="endMsg">VICTORY</div>
+    <button class="mode-btn" id="restartBtn"><b>PLAY AGAIN</b></button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// SPACE DEFENSE — sci-fi tower defense
+// ============================================================
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+
+const CELL = 50;
+const COLS = 18;   // 900 / 50
+const ROWS = 14;   // 700 / 50
+
+// Game state
+let state = {
+  mode: null,            // 'path' or 'open'
+  money: 100,
+  lives: 20,
+  wave: 0,
+  maxWave: 15,
+  grid: [],              // 0=open, 1=blocked(asteroid), 2=tower, 3=path tile
+  towers: [],
+  enemies: [],
+  projectiles: [],
+  particles: [],
+  effects: [],
+  path: [],              // pixel waypoints (fixed mode) or recomputed (open mode)
+  spawnPoint: {x:0, y:0},
+  basePoint: {x:0, y:0},
+  selectedTowerType: null,
+  selectedTower: null,
+  waveActive: false,
+  spawnQueue: [],
+  spawnTimer: 0,
+  gameOver: false,
+  won: false,
+  mouseX: 0,
+  mouseY: 0,
+  stars: [],
+};
+
+// ============================================================
+// TOWER DEFINITIONS
+// ============================================================
+const TOWER_TYPES = {
+  laser: {
+    name: 'Laser Turret',
+    cost: 40,
+    range: 130,
+    damage: 8,
+    fireRate: 0.25,      // seconds between shots
+    projSpeed: 600,
+    color: '#5cf',
+    glow: '#08f',
+    upgradeCost: 60,
+    desc: 'Fast laser bolts',
+  },
+  missile: {
+    name: 'Missile Bay',
+    cost: 80,
+    range: 180,
+    damage: 25,
+    splash: 50,
+    fireRate: 1.2,
+    projSpeed: 280,
+    color: '#fa3',
+    glow: '#f60',
+    upgradeCost: 120,
+    desc: 'Splash damage',
+  },
+  plasma: {
+    name: 'Plasma Cannon',
+    cost: 120,
+    range: 150,
+    damage: 18,
+    fireRate: 0.6,
+    projSpeed: 450,
+    slow: 0.5,
+    slowDur: 1.5,
+    color: '#a6f',
+    glow: '#62f',
+    upgradeCost: 180,
+    desc: 'Slows enemies',
+  },
+  tesla: {
+    name: 'Tesla Coil',
+    cost: 200,
+    range: 140,
+    damage: 14,
+    fireRate: 0.7,
+    chain: 3,
+    color: '#fff',
+    glow: '#5cf',
+    upgradeCost: 280,
+    desc: 'Chain lightning',
+  },
+};
+
+// ============================================================
+// ENEMY DEFINITIONS
+// ============================================================
+function makeEnemy(type, wave) {
+  const scale = 1 + wave * 0.18;
+  const defs = {
+    scout:   { hp: 30 * scale,  speed: 90, reward: 6,  color: '#5fc',  size: 12, name: 'Scout' },
+    fighter: { hp: 70 * scale,  speed: 65, reward: 10, color: '#fc5',  size: 16, name: 'Fighter' },
+    cruiser: { hp: 180 * scale, speed: 45, reward: 18, color: '#f59',  size: 22, name: 'Cruiser' },
+    swarmer: { hp: 18 * scale,  speed: 130,reward: 4,  color: '#9f5',  size: 9,  name: 'Swarmer' },
+    boss:    { hp: 800 * scale, speed: 35, reward: 80, color: '#f33',  size: 30, name: 'Boss' },
+  };
+  const d = defs[type];
+  return {
+    type, hp: d.hp, maxHp: d.hp, baseSpeed: d.speed, speed: d.speed,
+    reward: d.reward, color: d.color, size: d.size, name: d.name,
+    x: state.spawnPoint.x, y: state.spawnPoint.y,
+    pathIdx: 0,
+    slowTimer: 0, slowAmount: 1,
+    targetCell: null,
+    alive: true,
+  };
+}
+
+// ============================================================
+// WAVE DEFINITIONS
+// ============================================================
+const WAVES = [
+  { scout: 8 },
+  { scout: 12, fighter: 2 },
+  { scout: 6, fighter: 6 },
+  { swarmer: 20 },
+  { fighter: 10, cruiser: 2 },
+  { scout: 8, fighter: 8, cruiser: 3 },
+  { swarmer: 30, fighter: 5 },
+  { cruiser: 8 },
+  { scout: 15, fighter: 10, cruiser: 4 },
+  { swarmer: 40, cruiser: 5 },
+  { fighter: 20, cruiser: 8 },
+  { swarmer: 30, fighter: 15, cruiser: 6 },
+  { scout: 20, cruiser: 10 },
+  { fighter: 25, cruiser: 12, swarmer: 20 },
+  { boss: 1, cruiser: 15, fighter: 10 },
+];
+
+// ============================================================
+// MAP GENERATION
+// ============================================================
+function generateMap(mode) {
+  state.grid = [];
+  for (let y = 0; y < ROWS; y++) {
+    state.grid.push(new Array(COLS).fill(0));
+  }
+
+  if (mode === 'path') {
+    // Predefined winding path
+    const pathCells = [];
+    let cx = 0, cy = 7;
+    pathCells.push([cx, cy]);
+    // segments: right 5, down 3, right 4, up 5, right 5, down 4, right 3
+    const segs = [
+      ['R', 5], ['D', 3], ['R', 4], ['U', 5], ['R', 5], ['D', 4], ['R', 2]
+    ];
+    for (const [dir, n] of segs) {
+      for (let i = 0; i < n; i++) {
+        if (dir === 'R') cx++;
+        if (dir === 'L') cx--;
+        if (dir === 'U') cy--;
+        if (dir === 'D') cy++;
+        pathCells.push([cx, cy]);
+      }
+    }
+    for (const [x, y] of pathCells) {
+      if (y >= 0 && y < ROWS && x >= 0 && x < COLS) state.grid[y][x] = 3;
+    }
+    state.path = pathCells.map(([x,y]) => ({
+      x: x * CELL + CELL/2,
+      y: y * CELL + CELL/2,
+    }));
+    state.spawnPoint = state.path[0];
+    state.basePoint = state.path[state.path.length - 1];
+
+    // scatter asteroids on non-path cells
+    for (let i = 0; i < 25; i++) {
+      const x = Math.floor(Math.random() * COLS);
+      const y = Math.floor(Math.random() * ROWS);
+      if (state.grid[y][x] === 0) state.grid[y][x] = 1;
+    }
+  } else {
+    // Open field mode
+    state.spawnPoint = { x: 25, y: 350 };
+    state.basePoint = { x: 875, y: 350 };
+    // scatter some asteroids
+    for (let i = 0; i < 18; i++) {
+      const x = Math.floor(Math.random() * COLS);
+      const y = Math.floor(Math.random() * ROWS);
+      // keep spawn/base clear
+      if (x < 2 || x > COLS - 3) continue;
+      if (state.grid[y][x] === 0) state.grid[y][x] = 1;
+    }
+    state.path = computeOpenPath();
+  }
+}
+
+// BFS pathfinding from spawn cell to base cell
+function computeOpenPath() {
+  const sx = Math.floor(state.spawnPoint.x / CELL);
+  const sy = Math.floor(state.spawnPoint.y / CELL);
+  const tx = Math.floor(state.basePoint.x / CELL);
+  const ty = Math.floor(state.basePoint.y / CELL);
+  const visited = Array.from({length: ROWS}, () => new Array(COLS).fill(false));
+  const parent = Array.from({length: ROWS}, () => new Array(COLS).fill(null));
+  const queue = [[sx, sy]];
+  visited[sy][sx] = true;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    if (x === tx && y === ty) {
+      const path = [];
+      let cx = x, cy = y;
+      while (cx !== sx || cy !== sy) {
+        path.push({ x: cx * CELL + CELL/2, y: cy * CELL + CELL/2 });
+        const p = parent[cy][cx];
+        cx = p[0]; cy = p[1];
+      }
+      path.push({ x: state.spawnPoint.x, y: state.spawnPoint.y });
+      path.reverse();
+      return path;
+    }
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+      if (visited[ny][nx]) continue;
+      if (state.grid[ny][nx] === 1 || state.grid[ny][nx] === 2) continue;
+      visited[ny][nx] = true;
+      parent[ny][nx] = [x, y];
+      queue.push([nx, ny]);
+    }
+  }
+  return null;  // no path
+}
+
+// Recompute paths for all enemies (after a tower is placed in open mode)
+function recomputeEnemyPaths() {
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+    const sx = Math.floor(e.x / CELL);
+    const sy = Math.floor(e.y / CELL);
+    const tx = Math.floor(state.basePoint.x / CELL);
+    const ty = Math.floor(state.basePoint.y / CELL);
+    const path = bfsFromTo(sx, sy, tx, ty);
+    if (path) {
+      e.path = path;
+      e.pathIdx = 0;
+    }
+  }
+}
+
+function bfsFromTo(sx, sy, tx, ty) {
+  const visited = Array.from({length: ROWS}, () => new Array(COLS).fill(false));
+  const parent = Array.from({length: ROWS}, () => new Array(COLS).fill(null));
+  const queue = [[sx, sy]];
+  if (sy < 0 || sy >= ROWS || sx < 0 || sx >= COLS) return null;
+  visited[sy][sx] = true;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    if (x === tx && y === ty) {
+      const path = [];
+      let cx = x, cy = y;
+      while (cx !== sx || cy !== sy) {
+        path.push({ x: cx * CELL + CELL/2, y: cy * CELL + CELL/2 });
+        const p = parent[cy][cx];
+        cx = p[0]; cy = p[1];
+      }
+      path.reverse();
+      return path;
+    }
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+      if (visited[ny][nx]) continue;
+      if (state.grid[ny][nx] === 1 || state.grid[ny][nx] === 2) continue;
+      visited[ny][nx] = true;
+      parent[ny][nx] = [x, y];
+      queue.push([nx, ny]);
+    }
+  }
+  return null;
+}
+
+// ============================================================
+// STARFIELD BACKGROUND
+// ============================================================
+function initStars() {
+  state.stars = [];
+  for (let i = 0; i < 120; i++) {
+    state.stars.push({
+      x: Math.random() * 900,
+      y: Math.random() * 700,
+      r: Math.random() * 1.4 + 0.2,
+      tw: Math.random() * Math.PI * 2,
+    });
+  }
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+cv.addEventListener('mousemove', (e) => {
+  const rect = cv.getBoundingClientRect();
+  state.mouseX = (e.clientX - rect.left) * (900 / rect.width);
+  state.mouseY = (e.clientY - rect.top) * (700 / rect.height);
+});
+
+cv.addEventListener('click', (e) => {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (900 / rect.width);
+  const my = (e.clientY - rect.top) * (700 / rect.height);
+  const cx = Math.floor(mx / CELL);
+  const cy = Math.floor(my / CELL);
+  if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) return;
+
+  // If a tower type is selected, try to place
+  if (state.selectedTowerType) {
+    tryPlaceTower(cx, cy);
+    return;
+  }
+
+  // Otherwise check if user clicked an existing tower
+  const tower = state.towers.find(t => t.cellX === cx && t.cellY === cy);
+  if (tower) {
+    state.selectedTower = tower;
+    updateSelectedInfo();
+  } else {
+    state.selectedTower = null;
+    updateSelectedInfo();
+  }
+});
+
+cv.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  state.selectedTowerType = null;
+  document.querySelectorAll('.tower-btn[data-tower]').forEach(b => b.classList.remove('selected'));
+});
+
+document.querySelectorAll('.tower-btn[data-tower]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const type = btn.dataset.tower;
+    if (state.money < TOWER_TYPES[type].cost) return;
+    if (state.selectedTowerType === type) {
+      state.selectedTowerType = null;
+      btn.classList.remove('selected');
+    } else {
+      state.selectedTowerType = type;
+      document.querySelectorAll('.tower-btn[data-tower]').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    }
+    state.selectedTower = null;
+    updateSelectedInfo();
+  });
+});
+
+document.getElementById('waveBtn').addEventListener('click', () => {
+  if (state.waveActive || state.gameOver) return;
+  if (state.wave >= state.maxWave) return;
+  startWave();
+});
+
+document.getElementById('upgradeBtn').addEventListener('click', () => {
+  const t = state.selectedTower;
+  if (!t) return;
+  const def = TOWER_TYPES[t.type];
+  if (t.level >= 3) return;
+  const cost = Math.floor(def.upgradeCost * Math.pow(1.6, t.level - 1));
+  if (state.money < cost) return;
+  state.money -= cost;
+  t.level++;
+  t.damage = Math.floor(def.damage * Math.pow(1.5, t.level - 1));
+  t.range = def.range + (t.level - 1) * 25;
+  t.fireRate = def.fireRate * Math.pow(0.8, t.level - 1);
+  updateHUD();
+  updateSelectedInfo();
+});
+
+document.getElementById('sellBtn').addEventListener('click', () => {
+  const t = state.selectedTower;
+  if (!t) return;
+  state.money += Math.floor(t.totalSpent * 0.6);
+  state.grid[t.cellY][t.cellX] = state.mode === 'path' && state.pathCellSet.has(t.cellY * COLS + t.cellX) ? 3 : 0;
+  state.towers = state.towers.filter(x => x !== t);
+  state.selectedTower = null;
+  if (state.mode === 'open') {
+    state.path = computeOpenPath();
+    recomputeEnemyPaths();
+  }
+  updateHUD();
+  updateSelectedInfo();
+});
+
+document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    startGame(btn.dataset.mode);
+  });
+});
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+  document.getElementById('endScreen').classList.add('hidden');
+  document.getElementById('titleScreen').classList.remove('hidden');
+});
+
+// ============================================================
+// TOWER PLACEMENT
+// ============================================================
+function tryPlaceTower(cx, cy) {
+  const type = state.selectedTowerType;
+  const def = TOWER_TYPES[type];
+  if (state.money < def.cost) return;
+  if (state.grid[cy][cx] !== 0) return;  // can't build on asteroid, path, or tower
+
+  // Open mode: ensure we don't fully block enemies
+  if (state.mode === 'open') {
+    state.grid[cy][cx] = 2;
+    const newPath = computeOpenPath();
+    if (!newPath) {
+      state.grid[cy][cx] = 0;
+      flashMessage('Cannot block the only path!');
+      return;
+    }
+    // also check existing enemies still have a path
+    let allOk = true;
+    for (const e of state.enemies) {
+      if (!e.alive) continue;
+      const sx = Math.floor(e.x / CELL);
+      const sy = Math.floor(e.y / CELL);
+      const tx = Math.floor(state.basePoint.x / CELL);
+      const ty = Math.floor(state.basePoint.y / CELL);
+      if (!bfsFromTo(sx, sy, tx, ty)) { allOk = false; break; }
+    }
+    if (!allOk) {
+      state.grid[cy][cx] = 0;
+      flashMessage('Would trap an enemy!');
+      return;
+    }
+    state.path = newPath;
+    recomputeEnemyPaths();
+  } else {
+    state.grid[cy][cx] = 2;
+  }
+
+  state.money -= def.cost;
+  state.towers.push({
+    type, cellX: cx, cellY: cy,
+    x: cx * CELL + CELL/2, y: cy * CELL + CELL/2,
+    damage: def.damage,
+    range: def.range,
+    fireRate: def.fireRate,
+    cooldown: 0,
+    level: 1,
+    angle: 0,
+    targetAngle: 0,
+    totalSpent: def.cost,
+  });
+
+  // If we can't afford another, deselect
+  if (state.money < def.cost) {
+    state.selectedTowerType = null;
+    document.querySelectorAll('.tower-btn[data-tower]').forEach(b => b.classList.remove('selected'));
+  }
+  updateHUD();
+}
+
+// ============================================================
+// FLASH MESSAGES
+// ============================================================
+let flashText = '';
+let flashTime = 0;
+function flashMessage(msg) {
+  flashText = msg;
+  flashTime = 2;
+}
+
+// ============================================================
+// WAVES
+// ============================================================
+function startWave() {
+  state.wave++;
+  state.waveActive = true;
+  document.getElementById('waveBtn').disabled = true;
+  document.getElementById('waveBtn').textContent = 'WAVE ACTIVE';
+  const def = WAVES[state.wave - 1];
+  state.spawnQueue = [];
+  for (const [type, count] of Object.entries(def)) {
+    for (let i = 0; i < count; i++) state.spawnQueue.push(type);
+  }
+  // shuffle for variety
+  for (let i = state.spawnQueue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [state.spawnQueue[i], state.spawnQueue[j]] = [state.spawnQueue[j], state.spawnQueue[i]];
+  }
+  state.spawnTimer = 0;
+  updateHUD();
+}
+
+function spawnEnemy(type) {
+  const e = makeEnemy(type, state.wave);
+  if (state.mode === 'path') {
+    e.path = state.path;
+  } else {
+    e.path = state.path;
+  }
+  state.enemies.push(e);
+}
+
+// ============================================================
+// UPDATE
+// ============================================================
+let lastTime = 0;
+function update(dt) {
+  if (state.gameOver) return;
+
+  // Spawn enemies
+  if (state.waveActive && state.spawnQueue.length > 0) {
+    state.spawnTimer -= dt;
+    if (state.spawnTimer <= 0) {
+      spawnEnemy(state.spawnQueue.shift());
+      state.spawnTimer = 0.6;
+    }
+  }
+
+  // Update enemies
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+
+    // slow effect
+    if (e.slowTimer > 0) {
+      e.slowTimer -= dt;
+      e.speed = e.baseSpeed * e.slowAmount;
+      if (e.slowTimer <= 0) e.speed = e.baseSpeed;
+    } else {
+      e.speed = e.baseSpeed;
+    }
+
+    // follow path
+    if (!e.path || e.pathIdx >= e.path.length) {
+      // reached base
+      state.lives--;
+      e.alive = false;
+      spawnParticles(e.x, e.y, '#f33', 8);
+      updateHUD();
+      if (state.lives <= 0) {
+        endGame(false);
+      }
+      continue;
+    }
+    const target = e.path[e.pathIdx];
+    const dx = target.x - e.x;
+    const dy = target.y - e.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 4) {
+      e.pathIdx++;
+    } else {
+      e.x += (dx / dist) * e.speed * dt;
+      e.y += (dy / dist) * e.speed * dt;
+    }
+  }
+
+  // Update towers
+  for (const t of state.towers) {
+    t.cooldown -= dt;
+    // find target in range
+    const target = findEnemyInRange(t.x, t.y, t.range);
+    if (target) {
+      const dx = target.x - t.x;
+      const dy = target.y - t.y;
+      t.targetAngle = Math.atan2(dy, dx);
+      // smooth rotation
+      let da = t.targetAngle - t.angle;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      t.angle += da * Math.min(1, dt * 8);
+
+      if (t.cooldown <= 0) {
+        fireTower(t, target);
+        t.cooldown = t.fireRate;
+      }
+    }
+  }
+
+  // Update projectiles
+  for (const p of state.projectiles) {
+    if (!p.alive) continue;
+    if (p.kind === 'tesla') {
+      // tesla is instantaneous, but we draw a fading bolt
+      p.life -= dt;
+      if (p.life <= 0) p.alive = false;
+      continue;
+    }
+    if (!p.target || !p.target.alive) {
+      p.alive = false;
+      continue;
+    }
+    const dx = p.target.x - p.x;
+    const dy = p.target.y - p.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 8) {
+      // hit
+      damageEnemy(p.target, p.damage);
+      if (p.splash) {
+        spawnParticles(p.target.x, p.target.y, p.color, 16);
+        spawnEffect(p.target.x, p.target.y, p.splash, p.color);
+        for (const e of state.enemies) {
+          if (!e.alive || e === p.target) continue;
+          const ex = e.x - p.target.x;
+          const ey = e.y - p.target.y;
+          if (ex*ex + ey*ey < p.splash*p.splash) {
+            damageEnemy(e, p.damage * 0.6);
+          }
+        }
+      } else {
+        spawnParticles(p.target.x, p.target.y, p.color, 6);
+      }
+      if (p.slow) {
+        p.target.slowTimer = p.slowDur;
+        p.target.slowAmount = p.slow;
+      }
+      p.alive = false;
+    } else {
+      p.x += (dx / dist) * p.speed * dt;
+      p.y += (dy / dist) * p.speed * dt;
+      p.angle = Math.atan2(dy, dx);
+    }
+  }
+
+  // particles
+  for (const pt of state.particles) {
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    pt.life -= dt;
+    pt.vx *= 0.95;
+    pt.vy *= 0.95;
+  }
+  state.particles = state.particles.filter(p => p.life > 0);
+
+  // effects (splash rings)
+  for (const e of state.effects) {
+    e.life -= dt;
+    e.r += dt * 80;
+  }
+  state.effects = state.effects.filter(e => e.life > 0);
+
+  // remove dead
+  state.enemies = state.enemies.filter(e => e.alive);
+  state.projectiles = state.projectiles.filter(p => p.alive);
+
+  // Check wave end
+  if (state.waveActive && state.spawnQueue.length === 0 && state.enemies.length === 0) {
+    state.waveActive = false;
+    state.money += 30 + state.wave * 5;
+    document.getElementById('waveBtn').disabled = false;
+    document.getElementById('waveBtn').textContent = 'START WAVE';
+    if (state.wave >= state.maxWave) {
+      endGame(true);
+    }
+    updateHUD();
+  }
+
+  // flash
+  if (flashTime > 0) flashTime -= dt;
+
+  // twinkle stars
+  for (const s of state.stars) s.tw += dt * 2;
+}
+
+function findEnemyInRange(x, y, range) {
+  let best = null;
+  let bestProgress = -1;
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - x;
+    const dy = e.y - y;
+    if (dx*dx + dy*dy < range*range) {
+      // target enemy furthest along their path
+      const progress = e.pathIdx + (e.path ? 1 - Math.sqrt(dx*dx+dy*dy)/range : 0);
+      if (progress > bestProgress) {
+        bestProgress = progress;
+        best = e;
+      }
+    }
+  }
+  return best;
+}
+
+function fireTower(t, target) {
+  const def = TOWER_TYPES[t.type];
+  if (t.type === 'tesla') {
+    // chain lightning
+    const chain = (def.chain || 3) + Math.floor((t.level - 1) / 1);
+    const hits = [target];
+    let current = target;
+    let dmg = t.damage;
+    damageEnemy(target, dmg);
+    for (let i = 1; i < chain; i++) {
+      dmg *= 0.7;
+      let next = null;
+      let bestDist = 110;
+      for (const e of state.enemies) {
+        if (!e.alive || hits.includes(e)) continue;
+        const dx = e.x - current.x;
+        const dy = e.y - current.y;
+        const d = Math.sqrt(dx*dx + dy*dy);
+        if (d < bestDist) { bestDist = d; next = e; }
+      }
+      if (!next) break;
+      damageEnemy(next, dmg);
+      hits.push(next);
+      current = next;
+    }
+    // draw the bolt
+    state.projectiles.push({
+      kind: 'tesla', alive: true, life: 0.25,
+      points: [{x: t.x, y: t.y}, ...hits.map(h => ({x: h.x, y: h.y}))],
+      color: def.color,
+    });
+    return;
+  }
+  state.projectiles.push({
+    kind: t.type, alive: true,
+    x: t.x, y: t.y,
+    speed: def.projSpeed,
+    target,
+    damage: t.damage,
+    splash: def.splash,
+    slow: def.slow,
+    slowDur: def.slowDur,
+    color: def.color,
+    glow: def.glow,
+    angle: 0,
+  });
+}
+
+function damageEnemy(e, dmg) {
+  e.hp -= dmg;
+  if (e.hp <= 0 && e.alive) {
+    e.alive = false;
+    state.money += e.reward;
+    spawnParticles(e.x, e.y, e.color, 14);
+    updateHUD();
+  }
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 60 + Math.random() * 140;
+    state.particles.push({
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.5 + Math.random() * 0.4,
+      maxLife: 0.9,
+      color,
+      size: 2 + Math.random() * 2,
+    });
+  }
+}
+
+function spawnEffect(x, y, r, color) {
+  state.effects.push({ x, y, r: 5, maxR: r, life: 0.4, color });
+}
+
+// ============================================================
+// DRAW
+// ============================================================
+function draw() {
+  ctx.clearRect(0, 0, 900, 700);
+
+  // stars
+  for (const s of state.stars) {
+    const a = 0.4 + 0.6 * Math.abs(Math.sin(s.tw));
+    ctx.fillStyle = `rgba(180, 220, 255, ${a})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // grid + tiles
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const v = state.grid[y][x];
+      const px = x * CELL, py = y * CELL;
+      if (v === 3) {
+        // path tile
+        ctx.fillStyle = 'rgba(80, 140, 200, 0.18)';
+        ctx.fillRect(px, py, CELL, CELL);
+      }
+      if (v === 1) {
+        // asteroid
+        drawAsteroid(px + CELL/2, py + CELL/2, CELL/2 - 4);
+      }
+    }
+  }
+
+  // base
+  drawBase(state.basePoint.x, state.basePoint.y);
+  // spawn portal
+  drawPortal(state.spawnPoint.x, state.spawnPoint.y);
+
+  // grid hover preview
+  if (state.selectedTowerType) {
+    const cx = Math.floor(state.mouseX / CELL);
+    const cy = Math.floor(state.mouseY / CELL);
+    if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) {
+      const valid = state.grid[cy][cx] === 0 && state.money >= TOWER_TYPES[state.selectedTowerType].cost;
+      ctx.fillStyle = valid ? 'rgba(80, 255, 120, 0.25)' : 'rgba(255, 80, 80, 0.25)';
+      ctx.fillRect(cx * CELL, cy * CELL, CELL, CELL);
+      // range preview
+      const def = TOWER_TYPES[state.selectedTowerType];
+      ctx.strokeStyle = valid ? 'rgba(120, 255, 180, 0.5)' : 'rgba(255, 120, 120, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx * CELL + CELL/2, cy * CELL + CELL/2, def.range, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // selected tower range
+  if (state.selectedTower) {
+    const t = state.selectedTower;
+    ctx.strokeStyle = 'rgba(140, 255, 220, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.range, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // towers
+  for (const t of state.towers) drawTower(t);
+
+  // enemies
+  for (const e of state.enemies) drawEnemy(e);
+
+  // projectiles
+  for (const p of state.projectiles) drawProjectile(p);
+
+  // effects
+  for (const e of state.effects) {
+    ctx.strokeStyle = e.color;
+    ctx.globalAlpha = e.life / 0.4;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // particles
+  for (const pt of state.particles) {
+    ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+    ctx.fillStyle = pt.color;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // flash
+  if (flashTime > 0 && flashText) {
+    ctx.fillStyle = `rgba(255, 80, 80, ${Math.min(1, flashTime)})`;
+    ctx.font = 'bold 22px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(flashText, 450, 60);
+  }
+}
+
+function drawAsteroid(x, y, r) {
+  ctx.fillStyle = '#3a3528';
+  ctx.strokeStyle = '#5a4f3a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  // jagged hex
+  const sides = 7;
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * Math.PI * 2 + (x + y) * 0.001;
+    const rr = r * (0.8 + 0.2 * Math.sin(i * 3.7));
+    const px = x + Math.cos(a) * rr;
+    const py = y + Math.sin(a) * rr;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // craters
+  ctx.fillStyle = '#2a2418';
+  ctx.beginPath(); ctx.arc(x - 4, y + 3, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 5, y - 4, 2, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawBase(x, y) {
+  // glowing core
+  const t = performance.now() / 400;
+  const pulse = 0.7 + 0.3 * Math.sin(t);
+  ctx.fillStyle = `rgba(80, 200, 255, ${0.3 * pulse})`;
+  ctx.beginPath();
+  ctx.arc(x, y, 38, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#1a4070';
+  ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#5cf';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#aef';
+  ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawPortal(x, y) {
+  const t = performance.now() / 200;
+  ctx.strokeStyle = '#a4f';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 3; i++) {
+    ctx.globalAlpha = 0.4 + 0.3 * Math.sin(t + i);
+    ctx.beginPath();
+    ctx.arc(x, y, 18 + i * 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#62f';
+  ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawTower(t) {
+  const def = TOWER_TYPES[t.type];
+  // base
+  ctx.fillStyle = '#1a2848';
+  ctx.strokeStyle = def.color;
+  ctx.lineWidth = 2;
+  ctx.fillRect(t.x - 18, t.y - 18, 36, 36);
+  ctx.strokeRect(t.x - 18, t.y - 18, 36, 36);
+  // glow
+  ctx.fillStyle = def.glow;
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath(); ctx.arc(t.x, t.y, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // level pips
+  for (let i = 0; i < t.level; i++) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(t.x - 16 + i * 5, t.y - 16, 3, 3);
+  }
+
+  // barrel
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  ctx.rotate(t.angle);
+  ctx.fillStyle = def.color;
+  if (t.type === 'laser') {
+    ctx.fillRect(0, -3, 24, 6);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(20, -1, 4, 2);
+  } else if (t.type === 'missile') {
+    ctx.fillRect(0, -8, 18, 6);
+    ctx.fillRect(0, 2, 18, 6);
+  } else if (t.type === 'plasma') {
+    ctx.beginPath();
+    ctx.arc(14, 0, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(14, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (t.type === 'tesla') {
+    // tesla coil — orbiting balls
+    for (let i = 0; i < 3; i++) {
+      const a = performance.now() / 200 + i * Math.PI * 2 / 3;
+      ctx.fillStyle = i === 0 ? '#fff' : '#5cf';
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 12, Math.sin(a) * 12, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawEnemy(e) {
+  // ship body
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  // get facing direction
+  const next = e.path && e.pathIdx < e.path.length ? e.path[e.pathIdx] : null;
+  if (next) {
+    const ang = Math.atan2(next.y - e.y, next.x - e.x);
+    ctx.rotate(ang);
+  }
+  ctx.fillStyle = e.color;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  if (e.type === 'scout') {
+    ctx.beginPath();
+    ctx.moveTo(e.size, 0);
+    ctx.lineTo(-e.size * 0.6, -e.size * 0.7);
+    ctx.lineTo(-e.size * 0.3, 0);
+    ctx.lineTo(-e.size * 0.6, e.size * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (e.type === 'swarmer') {
+    ctx.beginPath();
+    ctx.arc(0, 0, e.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (e.type === 'boss') {
+    ctx.fillStyle = '#700';
+    ctx.beginPath();
+    ctx.arc(0, 0, e.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = e.color;
+    ctx.beginPath();
+    ctx.arc(0, 0, e.size - 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // generic ship
+    ctx.beginPath();
+    ctx.moveTo(e.size, 0);
+    ctx.lineTo(-e.size, -e.size * 0.7);
+    ctx.lineTo(-e.size * 0.5, 0);
+    ctx.lineTo(-e.size, e.size * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  if (e.slowTimer > 0) {
+    ctx.strokeStyle = '#a6f';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, e.size + 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // hp bar
+  const w = e.size * 2;
+  const pct = e.hp / e.maxHp;
+  ctx.fillStyle = '#400';
+  ctx.fillRect(e.x - w/2, e.y - e.size - 8, w, 4);
+  ctx.fillStyle = pct > 0.5 ? '#5f5' : pct > 0.25 ? '#fa3' : '#f33';
+  ctx.fillRect(e.x - w/2, e.y - e.size - 8, w * pct, 4);
+}
+
+function drawProjectile(p) {
+  if (p.kind === 'tesla') {
+    ctx.strokeStyle = p.color;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = p.life / 0.25;
+    ctx.beginPath();
+    for (let i = 0; i < p.points.length; i++) {
+      const pt = p.points[i];
+      if (i === 0) ctx.moveTo(pt.x, pt.y);
+      else {
+        // jagged path
+        const prev = p.points[i-1];
+        const steps = 5;
+        for (let s = 1; s <= steps; s++) {
+          const tt = s / steps;
+          const jx = pt.x * tt + prev.x * (1 - tt) + (Math.random() - 0.5) * 8;
+          const jy = pt.y * tt + prev.y * (1 - tt) + (Math.random() - 0.5) * 8;
+          ctx.lineTo(jx, jy);
+        }
+      }
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    return;
+  }
+  if (p.kind === 'laser') {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-8, -1.5, 16, 3);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-4, -0.5, 8, 1);
+    ctx.restore();
+  } else if (p.kind === 'missile') {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-6, -3, 12, 6);
+    ctx.fillStyle = '#f50';
+    ctx.beginPath();
+    ctx.moveTo(-6, -3);
+    ctx.lineTo(-12, 0);
+    ctx.lineTo(-6, 3);
+    ctx.fill();
+    ctx.restore();
+  } else if (p.kind === 'plasma') {
+    ctx.fillStyle = p.glow;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// ============================================================
+// HUD
+// ============================================================
+function updateHUD() {
+  document.getElementById('money').textContent = state.money;
+  document.getElementById('lives').textContent = state.lives;
+  document.getElementById('wave').textContent = state.wave;
+
+  // disable unaffordable towers
+  document.querySelectorAll('.tower-btn[data-tower]').forEach(b => {
+    const cost = TOWER_TYPES[b.dataset.tower].cost;
+    if (state.money < cost) b.classList.add('disabled');
+    else b.classList.remove('disabled');
+  });
+}
+
+function updateSelectedInfo() {
+  const info = document.getElementById('selInfo');
+  const up = document.getElementById('upgradeBtn');
+  const sl = document.getElementById('sellBtn');
+  if (state.selectedTower) {
+    const t = state.selectedTower;
+    const def = TOWER_TYPES[t.type];
+    info.innerHTML =
+      `<b style="color:${def.color}">${def.name}</b><br>` +
+      `LV ${t.level} / 3<br>` +
+      `Damage: ${Math.floor(t.damage)}<br>` +
+      `Range: ${Math.floor(t.range)}<br>` +
+      `Fire rate: ${(1/t.fireRate).toFixed(1)}/s`;
+    if (t.level < 3) {
+      const cost = Math.floor(def.upgradeCost * Math.pow(1.6, t.level - 1));
+      up.style.display = 'block';
+      up.innerHTML = `<b>Upgrade</b><small>Cost: ${cost}</small>`;
+    } else {
+      up.style.display = 'block';
+      up.innerHTML = `<b>MAX LEVEL</b>`;
+    }
+    sl.style.display = 'block';
+    sl.innerHTML = `<b>Sell</b><small>Refund: ${Math.floor(t.totalSpent * 0.6)}</small>`;
+  } else {
+    info.textContent = 'Click a turret to inspect.';
+    up.style.display = 'none';
+    sl.style.display = 'none';
+  }
+}
+
+// ============================================================
+// GAME FLOW
+// ============================================================
+function startGame(mode) {
+  state.mode = mode;
+  state.money = 150;
+  state.lives = 20;
+  state.wave = 0;
+  state.towers = [];
+  state.enemies = [];
+  state.projectiles = [];
+  state.particles = [];
+  state.effects = [];
+  state.selectedTower = null;
+  state.selectedTowerType = null;
+  state.gameOver = false;
+  state.won = false;
+  state.waveActive = false;
+  state.spawnQueue = [];
+
+  document.querySelectorAll('.tower-btn[data-tower]').forEach(b => b.classList.remove('selected'));
+  document.getElementById('waveBtn').disabled = false;
+  document.getElementById('waveBtn').textContent = 'START WAVE';
+
+  generateMap(mode);
+  // cache path cell set for sell logic
+  state.pathCellSet = new Set();
+  if (mode === 'path') {
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (state.grid[y][x] === 3) state.pathCellSet.add(y * COLS + x);
+    }
+  }
+  initStars();
+  updateHUD();
+  updateSelectedInfo();
+
+  document.getElementById('titleScreen').classList.add('hidden');
+  document.getElementById('endScreen').classList.add('hidden');
+}
+
+function endGame(won) {
+  state.gameOver = true;
+  state.won = won;
+  const screen = document.getElementById('endScreen');
+  const msg = document.getElementById('endMsg');
+  msg.className = 'end-msg ' + (won ? 'win' : 'lose');
+  msg.textContent = won ? 'VICTORY — EARTH IS SAFE' : 'DEFEAT — BASE DESTROYED';
+  screen.classList.remove('hidden');
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function loop(t) {
+  const dt = Math.min(0.05, (t - lastTime) / 1000 || 0);
+  lastTime = t;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

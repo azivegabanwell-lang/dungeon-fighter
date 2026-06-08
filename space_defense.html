@@ -957,6 +957,7 @@ function spawnEffect(x, y, r, color) {
 // ============================================================
 function draw() {
   ctx.clearRect(0, 0, 900, 700);
+  if (!state.mode) return;  // nothing to draw before a mode is chosen
 
   // stars
   for (const s of state.stars) {

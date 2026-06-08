@@ -564,10 +564,12 @@ document.getElementById('upgradeBtn').addEventListener('click', () => {
   const cost = Math.floor(def.upgradeCost * Math.pow(1.6, t.level - 1));
   if (state.money < cost) return;
   state.money -= cost;
+  t.totalSpent += cost;
   t.level++;
   t.damage = Math.floor(def.damage * Math.pow(1.5, t.level - 1));
   t.range = def.range + (t.level - 1) * 25;
-  t.fireRate = def.fireRate * Math.pow(0.8, t.level - 1);
+  t.fireRate = def.fireRate * Math.pow(0.7, t.level - 1);   // attack speed up ~43% per level
+  spawnParticles(t.x, t.y, '#fc4', 20);
   updateHUD();
   updateSelectedInfo();
 });
@@ -1124,52 +1126,215 @@ function drawPortal(x, y) {
 
 function drawTower(t) {
   const def = TOWER_TYPES[t.type];
-  // base
-  ctx.fillStyle = '#1a2848';
-  ctx.strokeStyle = def.color;
-  ctx.lineWidth = 2;
-  ctx.fillRect(t.x - 18, t.y - 18, 36, 36);
-  ctx.strokeRect(t.x - 18, t.y - 18, 36, 36);
-  // glow
-  ctx.fillStyle = def.glow;
-  ctx.globalAlpha = 0.3;
-  ctx.beginPath(); ctx.arc(t.x, t.y, 16, 0, Math.PI * 2); ctx.fill();
-  ctx.globalAlpha = 1;
+  const lvl = t.level;
+  const tm = performance.now() / 1000;
 
-  // level pips
-  for (let i = 0; i < t.level; i++) {
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(t.x - 16 + i * 5, t.y - 16, 3, 3);
+  // L3 outer gold aura ring + sparkles
+  if (lvl >= 3) {
+    const pulse = 0.7 + 0.3 * Math.sin(tm * 4);
+    ctx.strokeStyle = '#fc4';
+    ctx.globalAlpha = 0.5 * pulse;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 30, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 4; i++) {
+      const a = tm * 2 + i * Math.PI / 2;
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.arc(t.x + Math.cos(a) * 28, t.y + Math.sin(a) * 28, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
-  // barrel
+  // L2 colored aura ring
+  if (lvl >= 2) {
+    const pulse = 0.6 + 0.4 * Math.sin(tm * 3);
+    ctx.strokeStyle = def.color;
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 25, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Base shape changes per level: square -> octagon -> hexagon w/ gold
+  ctx.fillStyle = lvl === 1 ? '#1a2848' : lvl === 2 ? '#1a3868' : '#2a3a78';
+  ctx.strokeStyle = lvl >= 3 ? '#fc4' : def.color;
+  ctx.lineWidth = lvl >= 2 ? 3 : 2;
+  if (lvl === 1) {
+    ctx.fillRect(t.x - 18, t.y - 18, 36, 36);
+    ctx.strokeRect(t.x - 18, t.y - 18, 36, 36);
+  } else if (lvl === 2) {
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const px = t.x + Math.cos(a) * 20, py = t.y + Math.sin(a) * 20;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const px = t.x + Math.cos(a) * 22, py = t.y + Math.sin(a) * 22;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // inner gold rim
+    ctx.strokeStyle = '#fc4';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const px = t.x + Math.cos(a) * 17, py = t.y + Math.sin(a) * 17;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.stroke();
+  }
+
+  // Inner glow grows with level
+  ctx.fillStyle = def.glow;
+  ctx.globalAlpha = 0.25 + 0.12 * lvl;
+  ctx.beginPath();
+  ctx.arc(t.x, t.y, 13 + lvl * 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Level pips: gold at L3
+  for (let i = 0; i < lvl; i++) {
+    ctx.fillStyle = lvl >= 3 ? '#fc4' : '#fff';
+    ctx.fillRect(t.x - 16 + i * 6, t.y - 14, 4, 4);
+  }
+
+  // Barrel — type-specific with level-based detail
   ctx.save();
   ctx.translate(t.x, t.y);
   ctx.rotate(t.angle);
-  ctx.fillStyle = def.color;
+
   if (t.type === 'laser') {
+    ctx.fillStyle = def.color;
     ctx.fillRect(0, -3, 24, 6);
     ctx.fillStyle = '#fff';
     ctx.fillRect(20, -1, 4, 2);
+    if (lvl >= 2) {
+      ctx.fillStyle = def.color;
+      ctx.fillRect(0, -11, 22, 4);
+      ctx.fillRect(0, 7, 22, 4);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(19, -10, 3, 2);
+      ctx.fillRect(19, 8, 3, 2);
+    }
+    if (lvl >= 3) {
+      // pulsing energy core
+      const p = 0.6 + 0.4 * Math.sin(tm * 8);
+      ctx.fillStyle = '#fc4';
+      ctx.globalAlpha = p;
+      ctx.beginPath(); ctx.arc(10, 0, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(10, 0, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   } else if (t.type === 'missile') {
+    ctx.fillStyle = def.color;
     ctx.fillRect(0, -8, 18, 6);
     ctx.fillRect(0, 2, 18, 6);
+    if (lvl >= 2) {
+      ctx.fillRect(0, -15, 16, 4);
+      ctx.fillRect(0, 11, 16, 4);
+    }
+    if (lvl >= 3) {
+      ctx.fillStyle = '#fc4';
+      ctx.fillRect(0, -19, 14, 3);
+      ctx.fillRect(0, 16, 14, 3);
+      // glowing tips
+      ctx.fillStyle = '#ff8';
+      ctx.fillRect(15, -7, 3, 4);
+      ctx.fillRect(15, 3, 3, 4);
+      // central spotlight dish
+      ctx.fillStyle = def.color;
+      ctx.beginPath(); ctx.arc(5, 0, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(5, 0, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
   } else if (t.type === 'plasma') {
-    ctx.beginPath();
-    ctx.arc(14, 0, 8, 0, Math.PI * 2);
-    ctx.fill();
+    const orbR = 7 + lvl * 1.5;
+    ctx.fillStyle = def.glow;
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.arc(14, 0, orbR + 4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = def.color;
+    ctx.beginPath(); ctx.arc(14, 0, orbR, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(14, 0, 3, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (t.type === 'tesla') {
-    // tesla coil — orbiting balls
-    for (let i = 0; i < 3; i++) {
-      const a = performance.now() / 200 + i * Math.PI * 2 / 3;
-      ctx.fillStyle = i === 0 ? '#fff' : '#5cf';
+    ctx.beginPath(); ctx.arc(14, 0, orbR * 0.35, 0, Math.PI * 2); ctx.fill();
+    if (lvl >= 2) {
+      // rotating ring around orb
+      ctx.strokeStyle = def.color;
+      ctx.lineWidth = 1.5;
+      ctx.save();
+      ctx.translate(14, 0);
+      ctx.rotate(tm * 3);
       ctx.beginPath();
-      ctx.arc(Math.cos(a) * 12, Math.sin(a) * 12, 3, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, orbR + 4, 3, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (lvl >= 3) {
+      // electric arcs radiating out
+      for (let i = 0; i < 4; i++) {
+        const a = tm * 4 + i * Math.PI / 2;
+        const x1 = 14 + Math.cos(a) * (orbR + 1);
+        const y1 = Math.sin(a) * (orbR + 1);
+        const x2 = 14 + Math.cos(a) * (orbR + 8);
+        const y2 = Math.sin(a) * (orbR + 8);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+    }
+  } else if (t.type === 'tesla') {
+    const balls = 3 + (lvl - 1) * 2;       // 3 → 5 → 7
+    const orbitR = 10 + lvl * 2;
+    const pts = [];
+    for (let i = 0; i < balls; i++) {
+      const a = tm * 2 + i * Math.PI * 2 / balls;
+      pts.push({ x: Math.cos(a) * orbitR, y: Math.sin(a) * orbitR });
+    }
+    if (lvl >= 3) {
+      // bolts between adjacent balls
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.7;
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo((p1.x + p2.x) / 2 + (i % 2 ? 3 : -3), (p1.y + p2.y) / 2);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    for (let i = 0; i < pts.length; i++) {
+      ctx.fillStyle = i === 0 ? '#fff' : (lvl >= 3 ? '#fc4' : '#5cf');
+      ctx.beginPath();
+      ctx.arc(pts[i].x, pts[i].y, 3 + lvl * 0.6, 0, Math.PI * 2);
       ctx.fill();
+    }
+    if (lvl >= 2) {
+      // central dome
+      ctx.fillStyle = lvl >= 3 ? '#fc4' : def.color;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, 4 + (lvl - 2) * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
   }
   ctx.restore();

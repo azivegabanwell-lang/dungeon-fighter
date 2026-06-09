@@ -2487,7 +2487,7 @@ function updateMonsters(dt) {
       m.shootTimer -= dt;
       if (m.shootTimer <= 0 && dist < 380) {
         const bulletSpeed = 2.6 + level * 0.015;
-        const bulletDmg = Math.max(2, Math.floor(2 + level * 0.18));
+        const bulletDmg = 1.5;
         const a = Math.atan2(dy, dx);
         bossProjectiles.push({
           x: m.x + ndx * 14, y: m.y - 8 + ndy * 14,

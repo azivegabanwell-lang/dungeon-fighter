@@ -34,6 +34,16 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mousedown', () => { mouseDown = true; mouseClicked = true; });
 canvas.addEventListener('mouseup', () => { mouseDown = false; });
 document.addEventListener('keydown', e => {
+  // Global mute toggle (M)
+  if (e.key === 'm' || e.key === 'M') {
+    if (gameState !== 'nameEntry' && gameState !== 'adminCode' &&
+        !(gameState === 'adminPanel' && adminField === 'level')) {
+      sfxMuted = !sfxMuted;
+      bannerText = sfxMuted ? '🔇 SOUND OFF' : '🔊 SOUND ON';
+      subBannerText = '';
+      bannerTimer = 1.2;
+    }
+  }
   // Admin code entry
   if (gameState === 'adminCode') {
     if (e.key === 'Escape') { gameState = 'start'; }
@@ -566,6 +576,76 @@ let bossProjectiles = [];  // { x, y, vx, vy, dmg, color, life }
 let screenShake = 0;
 let groundCoins = [];  // { x, y, value, vx, vy, life, bobPhase }
 let deathAnims = [];   // { x, y, w, h, type, facing, isBoss, bossType, isStoryBoss, storyBossIdx, timer, duration, isPlayer, playerColors, weaponTier }
+let hitStop = 0;       // freeze-frame timer on big hits
+
+// --- Procedural Sound FX (Web Audio) ---
+let sfxCtx = null;
+let sfxMuted = false;
+let lastSfx = {};
+function sfx(name) {
+  if (sfxMuted) return;
+  // throttle to avoid audio spam
+  const now = performance.now();
+  if (lastSfx[name] && now - lastSfx[name] < 35) return;
+  lastSfx[name] = now;
+  try {
+    if (!sfxCtx) sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (sfxCtx.state === 'suspended') sfxCtx.resume();
+    const t = sfxCtx.currentTime;
+    const dst = sfxCtx.destination;
+    if (name === 'swing') {
+      const buf = sfxCtx.createBuffer(1, 2048, sfxCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < 2048; i++) d[i] = (Math.random()*2-1) * (1 - i/2048);
+      const src = sfxCtx.createBufferSource(); src.buffer = buf;
+      const f = sfxCtx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 6;
+      const g = sfxCtx.createGain();
+      g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+      src.connect(f); f.connect(g); g.connect(dst); src.start(t);
+    } else if (name === 'hit') {
+      const o = sfxCtx.createOscillator(); const g = sfxCtx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.08);
+      g.gain.setValueAtTime(0.16, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+      o.connect(g); g.connect(dst); o.start(t); o.stop(t + 0.12);
+    } else if (name === 'kill') {
+      const o = sfxCtx.createOscillator(); const g = sfxCtx.createGain();
+      o.type = 'square'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.2);
+      g.gain.setValueAtTime(0.13, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o.connect(g); g.connect(dst); o.start(t); o.stop(t + 0.24);
+    } else if (name === 'boss') {
+      const o = sfxCtx.createOscillator(); const g = sfxCtx.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(260, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.9);
+      g.gain.setValueAtTime(0.32, t); g.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+      o.connect(g); g.connect(dst); o.start(t); o.stop(t + 1.05);
+      const buf = sfxCtx.createBuffer(1, sfxCtx.sampleRate * 0.6, sfxCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+      const src = sfxCtx.createBufferSource(); src.buffer = buf;
+      const g2 = sfxCtx.createGain();
+      g2.gain.setValueAtTime(0.22, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      src.connect(g2); g2.connect(dst); src.start(t);
+    } else if (name === 'coin') {
+      const o = sfxCtx.createOscillator(); const g = sfxCtx.createGain();
+      o.type = 'square'; o.frequency.setValueAtTime(880, t); o.frequency.setValueAtTime(1320, t + 0.05);
+      g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      o.connect(g); g.connect(dst); o.start(t); o.stop(t + 0.14);
+    } else if (name === 'hurt') {
+      const o = sfxCtx.createOscillator(); const g = sfxCtx.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(110, t + 0.18);
+      g.gain.setValueAtTime(0.16, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      o.connect(g); g.connect(dst); o.start(t); o.stop(t + 0.22);
+    } else if (name === 'levelup') {
+      [523, 659, 784, 1047].forEach((freq, i) => {
+        const o = sfxCtx.createOscillator(); const g = sfxCtx.createGain();
+        o.type = 'triangle'; o.frequency.value = freq;
+        const st = t + i * 0.07;
+        g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(0.11, st + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, st + 0.4);
+        o.connect(g); g.connect(dst); o.start(st); o.stop(st + 0.45);
+      });
+    }
+  } catch (e) {}
+}
 
 function spawnDeathAnim(entity, isPlayer, playerColors) {
   deathAnims.push({
@@ -1461,7 +1541,11 @@ let lastT = 0;
 function gameLoop(t) {
   const dt = Math.min((t - lastT) / 1000, 0.05);
   lastT = t;
-  update(dt);
+  if (hitStop > 0) {
+    hitStop -= dt;
+  } else {
+    update(dt);
+  }
   draw();
   mouseClicked = false;
   requestAnimationFrame(gameLoop);
@@ -1511,6 +1595,7 @@ function update(dt) {
         if (Math.hypot(b.x - p.x, b.y - p.y) < 16) {
           p.hp = Math.max(0, p.hp - b.dmg);
           p.invincible = 0.5;
+          sfx('hurt'); screenShake = Math.max(screenShake, 0.18);
           addText(p.x, p.y - 36, `-${b.dmg}`, '#ff4400');
           spawnParticles(p.x, p.y - 8, b.color, 4, 1.5);
           return false;
@@ -1520,6 +1605,7 @@ function update(dt) {
       if (player.invincible <= 0 && Math.hypot(b.x - player.x, b.y - player.y) < 16) {
         player.hp = Math.max(0, player.hp - b.dmg);
         player.invincible = 0.5;
+        sfx('hurt'); screenShake = Math.max(screenShake, 0.18);
         addText(player.x, player.y - 36, `-${b.dmg}`, '#ff4400');
         spawnParticles(player.x, player.y - 8, b.color, 4, 1.5);
         return false;
@@ -1548,6 +1634,7 @@ function update(dt) {
           if (p.permaDead || p.downed || !p.alive || p.hp <= 0) continue;
           if (Math.hypot(c.x - p.x, c.y - p.y) < pickupDist) {
             coins += c.value;
+            sfx('coin');
             addText(p.x, p.y - 30, `+${c.value}🪙`, '#FFD700');
             return false;
           }
@@ -1555,6 +1642,7 @@ function update(dt) {
       } else {
         if (Math.hypot(c.x - player.x, c.y - player.y) < pickupDist) {
           coins += c.value;
+          sfx('coin');
           addText(player.x, player.y - 30, `+${c.value}🪙`, '#FFD700');
           return false;
         }
@@ -1964,7 +2052,7 @@ function update(dt) {
         subBannerText = monsters[0].bossName;
         bannerTimer = 3;
       } else if (done % 5 === 0) {
-        gameState = 'upgrade';
+        gameState = 'upgrade'; sfx('levelup');
       } else {
         initLevel();
         gameState = 'playing';
@@ -1990,7 +2078,7 @@ function update(dt) {
         // All non-permaDead players get upgrade picks
         teamUpgradeQueue = [];
         for (let i = 0; i < players.length; i++) { if (!players[i].permaDead) teamUpgradeQueue.push(i); }
-        gameState = 'upgrade';
+        gameState = 'upgrade'; sfx('levelup');
       } else {
         initLevel();
         gameState = 'playing';
@@ -2010,7 +2098,7 @@ function update(dt) {
         subBannerText = monsters[0].bossName;
         bannerTimer = 3;
       } else if (done % 5 === 0) {
-        gameState = 'upgrade';
+        gameState = 'upgrade'; sfx('levelup');
       } else {
         initLevel();
         gameState = 'playing';
@@ -2065,6 +2153,7 @@ function updatePlayer(dt) {
     player.isAttacking = true;
     player.attackTimer = 0.18;
     player.attackCooldown = 1 / player.attackSpeed;
+    sfx('swing');
 
     // Full 360° circle hitbox — hits ALL monsters within range
     const hitAbility = wd.ability;
@@ -2143,6 +2232,7 @@ function updateTeamPlayer(p, idx, dt) {
     p.isAttacking = true;
     p.attackTimer = 0.18;
     p.attackCooldown = 1 / p.attackSpeed;
+    sfx('swing');
 
     const hitAbility = wd.ability;
     const hitColor = wd.glow || '#cc2200';
@@ -2183,6 +2273,9 @@ function updateTeamPlayer(p, idx, dt) {
 
 function applyHitTeam(m, attacker, ability, color, chainTargets) {
   m.hp -= attacker.damage;
+  m.hitFlash = 0.12;
+  sfx('hit');
+  screenShake = Math.max(screenShake, 0.05);
   spawnParticles(m.x, m.y - 5, color, 5);
   addText(m.x, m.y - 26, `-${attacker.damage}`, '#ff7777');
   if (ability === 'burn')      { m.burnTimer  = 2.5; spawnParticles(m.x, m.y, '#FF4400', 6, 1.5); }
@@ -2203,6 +2296,8 @@ function applyHitTeam(m, attacker, ability, color, chainTargets) {
       ? 60 + Math.floor(level * 2)
       : 2 + Math.floor(Math.random()*4) + Math.floor(level/4);
     spawnGroundCoins(m.x, m.y, drop);
+    if (m.isBoss) { sfx('boss'); screenShake = 0.55; hitStop = 0.12; }
+    else { sfx('kill'); screenShake = Math.max(screenShake, 0.12); }
     if (!m.isBoss) { achStats.kills++; checkAchievements(); }
     if (m.isBoss && !m.isStoryBoss) {
       bannerText = '★ BOSS DEFEATED ★';
@@ -2216,6 +2311,9 @@ function applyHitTeam(m, attacker, ability, color, chainTargets) {
 
 function applyHit(m, dmg, ability, color, chainTargets) {
   m.hp -= dmg;
+  m.hitFlash = 0.12;
+  sfx('hit');
+  screenShake = Math.max(screenShake, 0.05);
   spawnParticles(m.x, m.y - 5, color, 5);
   addText(m.x, m.y - 26, `-${dmg}`, '#ff7777');
   if (ability === 'burn')      { m.burnTimer  = 2.5; spawnParticles(m.x, m.y, '#FF4400', 6, 1.5); }
@@ -2236,6 +2334,8 @@ function applyHit(m, dmg, ability, color, chainTargets) {
       ? 60 + Math.floor(level * 2)
       : 2 + Math.floor(Math.random()*4) + Math.floor(level/4);
     spawnGroundCoins(m.x, m.y, drop);
+    if (m.isBoss) { sfx('boss'); screenShake = 0.55; hitStop = 0.12; }
+    else { sfx('kill'); screenShake = Math.max(screenShake, 0.12); }
     if (!m.isBoss) { achStats.kills++; checkAchievements(); }
     if (m.isBoss) {
       if (m.isStoryBoss) {
@@ -2276,6 +2376,7 @@ function applyHit(m, dmg, ability, color, chainTargets) {
 
 function updateMonsters(dt) {
   monsters = monsters.filter(m => {
+    if (m.hitFlash > 0) m.hitFlash -= dt;
     // Status effects
     if (m.burnTimer > 0) {
       m.burnTimer -= dt; m.burnTick -= dt;
@@ -2369,6 +2470,7 @@ function updateMonsters(dt) {
         if (pd < atkDist && m.atkCooldown <= 0) {
           p.hp = Math.max(0, p.hp - atkDmg);
           p.invincible = 0.75; m.atkCooldown = m.isBoss ? 1.2 : 1.5;
+          sfx('hurt'); screenShake = Math.max(screenShake, m.isBoss ? 0.25 : 0.15);
           addText(p.x, p.y - 36, `-${atkDmg}`, '#ff2200');
           spawnParticles(p.x, p.y - 8, '#ff0000', 3, 1.8);
         }
@@ -2377,6 +2479,7 @@ function updateMonsters(dt) {
       if (dist < atkDist && m.atkCooldown <= 0 && player.invincible <= 0) {
         player.hp = Math.max(0, player.hp - atkDmg);
         player.invincible = 0.75; m.atkCooldown = m.isBoss ? 1.2 : 1.5;
+        sfx('hurt'); screenShake = Math.max(screenShake, m.isBoss ? 0.25 : 0.15);
         addText(player.x, player.y - 36, `-${atkDmg}`, '#ff2200');
         spawnParticles(player.x, player.y - 8, '#ff0000', 3, 1.8);
       }
@@ -2928,6 +3031,7 @@ function drawMonster(m) {
       if (m.burnTimer   > 0) { ctx.globalAlpha = 0.3 + Math.sin(Date.now()/80)*0.12;  ctx.fillStyle='#FF3300'; ctx.fillRect(x-24,y-60,48,64); ctx.globalAlpha=1; }
       if (m.slowTimer   > 0) { ctx.globalAlpha = 0.28; ctx.fillStyle='#88DDFF';        ctx.fillRect(x-24,y-60,48,64); ctx.globalAlpha=1; }
       if (m.poisonTimer > 0) { ctx.globalAlpha = 0.3 + Math.sin(Date.now()/120)*0.1;  ctx.fillStyle='#00BB00'; ctx.fillRect(x-24,y-60,48,64); ctx.globalAlpha=1; }
+      if (m.hitFlash > 0)    { ctx.globalAlpha = Math.min(1, m.hitFlash / 0.12) * 0.7; ctx.fillStyle='#fff'; ctx.fillRect(x-24,y-60,48,64); ctx.globalAlpha=1; }
 
       // Boss name tag
       ctx.fillStyle = '#FFD700'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
@@ -2960,6 +3064,13 @@ function drawMonster(m) {
   if (m.poisonTimer > 0) {
     ctx.globalAlpha = 0.4 + Math.sin(Date.now()/120) * 0.15;
     ctx.fillStyle = '#00BB00';
+    ctx.fillRect(x - m.w/2 - 2, y - m.h - 2, m.w + 4, m.h + 4);
+    ctx.globalAlpha = 1;
+  }
+  // Hit flash overlay
+  if (m.hitFlash > 0) {
+    ctx.globalAlpha = Math.min(1, m.hitFlash / 0.12) * 0.85;
+    ctx.fillStyle = '#fff';
     ctx.fillRect(x - m.w/2 - 2, y - m.h - 2, m.w + 4, m.h + 4);
     ctx.globalAlpha = 1;
   }

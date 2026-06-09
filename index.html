@@ -496,6 +496,7 @@ const player = {
   facing: 1,
   invincible: 0,
   vampireSteal: 0,
+  walkPhase: 0, moving: false,
   get speed() { return this.baseSpeed * this.speedMult; },
   get attackSpeed() { return this.baseAttackSpeed * this.attackSpeedMult; },
   get damage() { return this.weaponDamage + this.strengthBonus; },
@@ -534,6 +535,7 @@ function createPlayer(index) {
     reviveProgress: 0,
     playerIndex: index,
     vampireSteal: 0,
+    walkPhase: 0, moving: false,
     get speed() { return this.baseSpeed * this.speedMult; },
     get attackSpeed() { return this.baseAttackSpeed * this.attackSpeedMult; },
     get damage() { return this.weaponDamage + this.strengthBonus; },
@@ -1546,6 +1548,11 @@ function gameLoop(t) {
   } else {
     update(dt);
   }
+  // Freeze walking animations when not actively playing
+  if (gameState !== 'playing') {
+    if (player) player.moving = false;
+    if (typeof players !== 'undefined' && players) players.forEach(p => p.moving = false);
+  }
   draw();
   mouseClicked = false;
   requestAnimationFrame(gameLoop);
@@ -2123,6 +2130,8 @@ function updatePlayer(dt) {
 
   player.x = Math.max(ROOM.x + player.w/2, Math.min(ROOM.x + ROOM.w - player.w/2, player.x + dx * player.speed));
   player.y = Math.max(ROOM.y + player.h/2, Math.min(ROOM.y + ROOM.h - player.h/2, player.y + dy * player.speed));
+  player.moving = mag > 0.01;
+  if (player.moving) player.walkPhase += dt * 12;
 
   player.facing = mouse.x >= player.x ? 1 : -1;
 
@@ -2206,6 +2215,8 @@ function updateTeamPlayer(p, idx, dt) {
 
   p.x = Math.max(ROOM.x + p.w/2, Math.min(ROOM.x + ROOM.w - p.w/2, p.x + dx * p.speed));
   p.y = Math.max(ROOM.y + p.h/2, Math.min(ROOM.y + ROOM.h - p.h/2, p.y + dy * p.speed));
+  p.moving = (dx !== 0 || dy !== 0);
+  if (p.moving) p.walkPhase += dt * 12;
 
   // Face toward nearest monster
   let nearest = null, nearestDist = Infinity;
@@ -2750,44 +2761,51 @@ function drawPlayerWithColors(p, colors) {
   }
   if (currentMode === 'teamwork' && (!p.alive || p.hp <= 0)) return;
 
-  // Shadow
+  // Walking animation
+  const walkS = p.moving ? Math.sin(p.walkPhase) : 0;
+  const leftLift = Math.max(0, walkS) * 3;
+  const rightLift = Math.max(0, -walkS) * 3;
+  const bobY = p.moving ? -Math.abs(Math.cos(p.walkPhase)) * 1.2 : 0;
+  const armSwing = p.moving ? walkS * 1.5 : 0;
+
+  // Shadow (no bob)
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath(); ctx.ellipse(x, y+13, 10, 4, 0, 0, Math.PI*2); ctx.fill();
 
-  // Boots
+  // Boots — independent leg animation
   ctx.fillStyle = '#2d1d0d';
-  ctx.fillRect(x-6, y+11, 5, 4);
-  ctx.fillRect(x+1, y+11, 5, 4);
+  ctx.fillRect(x-6, y+11 - leftLift, 5, 4);
+  ctx.fillRect(x+1, y+11 - rightLift, 5, 4);
   // Legs
   ctx.fillStyle = '#3d2d1a';
-  ctx.fillRect(x-5, y+5, 4, 8);
-  ctx.fillRect(x+1, y+5, 4, 8);
+  ctx.fillRect(x-5, y+5 - leftLift, 4, 8);
+  ctx.fillRect(x+1, y+5 - rightLift, 4, 8);
   // Belt
   ctx.fillStyle = '#4a3020';
-  ctx.fillRect(x-6, y+4, 12, 3);
+  ctx.fillRect(x-6, y+4 + bobY, 12, 3);
   // Body
   ctx.fillStyle = '#7a5c1e';
-  ctx.fillRect(x-6, y-8, 12, 14);
+  ctx.fillRect(x-6, y-8 + bobY, 12, 14);
   // Chest armor
   ctx.fillStyle = colors.armor;
-  ctx.fillRect(x-5, y-7, 10, 9);
+  ctx.fillRect(x-5, y-7 + bobY, 10, 9);
   ctx.fillStyle = colors.chest;
-  ctx.fillRect(x-4, y-6, 8, 4);
-  // Arms
+  ctx.fillRect(x-4, y-6 + bobY, 8, 4);
+  // Arms swing opposite to legs
   ctx.fillStyle = colors.skin;
-  ctx.fillRect(x-9, y-7, 3, 11);
-  ctx.fillRect(x+6, y-7, 3, 11);
+  ctx.fillRect(x-9, y-7 + bobY + armSwing, 3, 11);
+  ctx.fillRect(x+6, y-7 + bobY - armSwing, 3, 11);
   // Head
   ctx.fillStyle = colors.skin;
-  ctx.fillRect(x-5, y-18, 10, 10);
+  ctx.fillRect(x-5, y-18 + bobY, 10, 10);
   // Hair
   ctx.fillStyle = colors.hair;
-  ctx.fillRect(x-5, y-18, 10, 3);
-  ctx.fillRect(x-5, y-16, 2, 4);
+  ctx.fillRect(x-5, y-18 + bobY, 10, 3);
+  ctx.fillRect(x-5, y-16 + bobY, 2, 4);
   // Eye
   ctx.fillStyle = '#1a1000';
-  if (p.facing > 0) ctx.fillRect(x+1, y-14, 2, 2);
-  else                   ctx.fillRect(x-3, y-14, 2, 2);
+  if (p.facing > 0) ctx.fillRect(x+1, y-14 + bobY, 2, 2);
+  else                   ctx.fillRect(x-3, y-14 + bobY, 2, 2);
 
   // Player name tag (teamwork only)
   if (currentMode === 'teamwork') {
@@ -2798,7 +2816,7 @@ function drawPlayerWithColors(p, colors) {
     ctx.textAlign = 'left';
   }
 
-  drawWeaponFor(p, x, y);
+  drawWeaponFor(p, x, y + bobY);
 }
 
 function drawWeaponFor(p, px, py) {
@@ -3020,10 +3038,11 @@ function drawMonster(m) {
       ctx.shadowColor = m.type === 1 ? '#FF2200' : m.type === 0 ? '#cc88ff' : '#88ff44';
       ctx.shadowBlur = 28;
     }
-    if (m.isStoryBoss)     drawStoryBoss(x, y, m.facing, m.charging, m.storyBossIdx);
-    else if (m.type === 0) drawSkeletonKing(x, y, m.facing, m.charging);
-    else if (m.type === 1) drawDemonLord(x, y, m.facing, m.charging);
-    else                   drawOrcWarlord(x, y, m.facing, m.charging);
+    const bossWalkP = m._deathAnim ? 0 : (m.wobble || 0) * 1.5;
+    if (m.isStoryBoss)     drawStoryBoss(x, y, m.facing, m.charging, m.storyBossIdx, bossWalkP);
+    else if (m.type === 0) drawSkeletonKing(x, y, m.facing, m.charging, bossWalkP);
+    else if (m.type === 1) drawDemonLord(x, y, m.facing, m.charging, bossWalkP);
+    else                   drawOrcWarlord(x, y, m.facing, m.charging, bossWalkP);
     ctx.shadowBlur = 0;
 
     if (!m._deathAnim) {
@@ -3044,9 +3063,10 @@ function drawMonster(m) {
   ctx.fillStyle = 'rgba(0,0,0,0.32)';
   ctx.beginPath(); ctx.ellipse(x, y+11, 9, 3, 0, 0, Math.PI*2); ctx.fill();
 
-  if      (m.type === 0) drawSkeleton(x, y, m.facing);
-  else if (m.type === 1) drawDemon(x, y, m.facing);
-  else                   drawOrc(x, y, m.facing);
+  const walkP = m._deathAnim ? 0 : (m.wobble || 0) * 2;
+  if      (m.type === 0) drawSkeleton(x, y, m.facing, walkP);
+  else if (m.type === 1) drawDemon(x, y, m.facing, walkP);
+  else                   drawOrc(x, y, m.facing, walkP);
 
   // Status effect overlays
   if (m.burnTimer > 0) {
@@ -3114,8 +3134,11 @@ function drawBossGun(x, y, facing, glowColor) {
   ctx.globalAlpha = 1;
 }
 
-function drawSkeletonKing(x, y, facing, charging) {
+function drawSkeletonKing(x, y, facing, charging, phase = 0) {
   const t = Date.now() / 150;
+  const sn = Math.sin(phase);
+  const lL = Math.max(0, sn) * 4, rL = Math.max(0, -sn) * 4;
+  const bob = -Math.abs(Math.cos(phase)) * 1.5;
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(x, y+14, 22, 6, 0, 0, Math.PI*2); ctx.fill();
   // Tattered purple cape (behind body)
@@ -3123,11 +3146,15 @@ function drawSkeletonKing(x, y, facing, charging) {
   ctx.beginPath(); ctx.moveTo(x-18, y-30); ctx.lineTo(x-22, y+10); ctx.lineTo(x-8, y+2); ctx.lineTo(x, y+10); ctx.lineTo(x+8, y+2); ctx.lineTo(x+22, y+10); ctx.lineTo(x+18, y-30); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#220033';
   ctx.fillRect(x-4, y-30, 8, 40); // cape center spine
-  // Bone legs
+  // Bone legs — animated
   ctx.fillStyle = '#ddd8cc';
-  ctx.fillRect(x-9, y+2, 6, 14); ctx.fillRect(x+3, y+2, 6, 14);
+  ctx.fillRect(x-9, y+2 - lL, 6, 14);
+  ctx.fillRect(x+3, y+2 - rL, 6, 14);
   // Foot bones
-  ctx.fillRect(x-11, y+13, 8, 4); ctx.fillRect(x+3, y+13, 8, 4);
+  ctx.fillRect(x-11, y+13 - lL, 8, 4);
+  ctx.fillRect(x+3,  y+13 - rL, 8, 4);
+  // Upper body bob
+  y += bob;
   // Ribcage
   ctx.fillStyle = '#ddd8cc'; ctx.fillRect(x-12, y-22, 24, 26);
   ctx.fillStyle = '#b0ac9f'; ctx.fillRect(x-2, y-22, 4, 26); // spine
@@ -3179,29 +3206,38 @@ function drawSkeletonKing(x, y, facing, charging) {
   }
 }
 
-function drawDemonLord(x, y, facing, charging) {
+function drawDemonLord(x, y, facing, charging, phase = 0) {
   const t = Date.now() / 130;
+  const sn = Math.sin(phase);
+  const lL = Math.max(0, sn) * 4, rL = Math.max(0, -sn) * 4;
+  const bob = -Math.abs(Math.cos(phase)) * 1.5;
+  const wingFlap = Math.cos(phase * 1.2) * 4;
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.ellipse(x, y+14, 26, 7, 0, 0, Math.PI*2); ctx.fill();
-  // Massive wings (behind everything)
+  // Massive wings (behind everything) — flap
   ctx.fillStyle = '#1a0000';
-  ctx.beginPath(); ctx.moveTo(x-10,y-30); ctx.lineTo(x-55,y-55); ctx.lineTo(x-48,y-20); ctx.lineTo(x-55,y+10); ctx.lineTo(x-10,y-5); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(x+10,y-30); ctx.lineTo(x+55,y-55); ctx.lineTo(x+48,y-20); ctx.lineTo(x+55,y+10); ctx.lineTo(x+10,y-5); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x-10,y-30); ctx.lineTo(x-55,y-55 - wingFlap); ctx.lineTo(x-48,y-20); ctx.lineTo(x-55,y+10 + wingFlap); ctx.lineTo(x-10,y-5); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+10,y-30); ctx.lineTo(x+55,y-55 - wingFlap); ctx.lineTo(x+48,y-20); ctx.lineTo(x+55,y+10 + wingFlap); ctx.lineTo(x+10,y-5); ctx.fill();
   // Wing membrane texture
   ctx.strokeStyle = '#330000'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x-10,y-30); ctx.lineTo(x-52,y-50); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x-10,y-30); ctx.lineTo(x-52,y-50 - wingFlap); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x-10,y-20); ctx.lineTo(x-50,y-15); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x+10,y-30); ctx.lineTo(x+52,y-50); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+10,y-30); ctx.lineTo(x+52,y-50 - wingFlap); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x+10,y-20); ctx.lineTo(x+50,y-15); ctx.stroke();
   // Tail
   ctx.strokeStyle = '#660000'; ctx.lineWidth = 5;
   ctx.beginPath(); ctx.moveTo(x+8,y+4); ctx.quadraticCurveTo(x+30,y+20, x+22,y+8); ctx.stroke();
   ctx.fillStyle = '#880000'; ctx.beginPath(); ctx.moveTo(x+22,y+8); ctx.lineTo(x+28,y+5); ctx.lineTo(x+24,y+14); ctx.fill();
-  // Legs
+  // Legs — animated
   ctx.fillStyle = '#5a0000';
-  ctx.fillRect(x-12, y, 10, 16); ctx.fillRect(x+2, y, 10, 16);
+  ctx.fillRect(x-12, y - lL, 10, 16);
+  ctx.fillRect(x+2,  y - rL, 10, 16);
   // Hooves
-  ctx.fillStyle = '#220000'; ctx.fillRect(x-14, y+12, 12, 6); ctx.fillRect(x+2, y+12, 12, 6);
+  ctx.fillStyle = '#220000';
+  ctx.fillRect(x-14, y+12 - lL, 12, 6);
+  ctx.fillRect(x+2,  y+12 - rL, 12, 6);
+  // Upper body bob
+  y += bob;
   // Armored body
   ctx.fillStyle = '#3d0000'; ctx.fillRect(x-14, y-24, 28, 26);
   ctx.fillStyle = '#1a0000'; // armor plates
@@ -3254,15 +3290,26 @@ function drawDemonLord(x, y, facing, charging) {
   drawBossGun(x, y, facing, '#FF4400');
 }
 
-function drawOrcWarlord(x, y, facing, charging) {
+function drawOrcWarlord(x, y, facing, charging, phase = 0) {
   const t = Date.now() / 160;
+  const sn = Math.sin(phase);
+  const lL = Math.max(0, sn) * 4, rL = Math.max(0, -sn) * 4;
+  const bob = -Math.abs(Math.cos(phase)) * 1.5;
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(x, y+14, 24, 6, 0, 0, Math.PI*2); ctx.fill();
-  // Heavy boots
-  ctx.fillStyle = '#2a1a08'; ctx.fillRect(x-14, y+10, 13, 8); ctx.fillRect(x+1, y+10, 13, 8);
+  // Heavy boots — animated
+  ctx.fillStyle = '#2a1a08';
+  ctx.fillRect(x-14, y+10 - lL, 13, 8);
+  ctx.fillRect(x+1,  y+10 - rL, 13, 8);
   // Armored legs
-  ctx.fillStyle = '#2d5a1b'; ctx.fillRect(x-13, y, 12, 12); ctx.fillRect(x+1, y, 12, 12);
-  ctx.fillStyle = '#4a4040'; ctx.fillRect(x-13, y+2, 12, 6); ctx.fillRect(x+1, y+2, 12, 6);
+  ctx.fillStyle = '#2d5a1b';
+  ctx.fillRect(x-13, y - lL, 12, 12);
+  ctx.fillRect(x+1,  y - rL, 12, 12);
+  ctx.fillStyle = '#4a4040';
+  ctx.fillRect(x-13, y+2 - lL, 12, 6);
+  ctx.fillRect(x+1,  y+2 - rL, 12, 6);
+  // Upper body bob
+  y += bob;
   // Huge body
   ctx.fillStyle = '#2d5a1b'; ctx.fillRect(x-16, y-28, 32, 30);
   // Heavy armor chest
@@ -3330,13 +3377,20 @@ function drawOrcWarlord(x, y, facing, charging) {
 
 // ---- END BOSS DRAWINGS ----
 
-function drawSkeleton(x, y, facing) {
+function drawSkeleton(x, y, facing, phase = 0) {
   const b = '#ddd8cc', db = '#b0ac9f';
+  const s = Math.sin(phase);
+  const lL = Math.max(0, s) * 2.5, rL = Math.max(0, -s) * 2.5;
+  const bob = -Math.abs(Math.cos(phase)) * 1;
   // Feet
-  ctx.fillStyle = b; ctx.fillRect(x-6, y+10, 5, 3); ctx.fillRect(x+1, y+10, 5, 3);
+  ctx.fillStyle = b;
+  ctx.fillRect(x-6, y+10 - lL, 5, 3);
+  ctx.fillRect(x+1, y+10 - rL, 5, 3);
   // Legs
-  ctx.fillRect(x-4, y+2, 3, 10); ctx.fillRect(x+1, y+2, 3, 10);
-  // Ribcage
+  ctx.fillRect(x-4, y+2 - lL, 3, 10);
+  ctx.fillRect(x+1, y+2 - rL, 3, 10);
+  // Ribcage (body bobs)
+  y += bob;
   ctx.fillRect(x-6, y-9, 12, 12);
   ctx.fillStyle = db; ctx.fillRect(x-1, y-9, 2, 12);
   ctx.fillStyle = b;
@@ -3358,18 +3412,28 @@ function drawSkeleton(x, y, facing) {
   ctx.fillRect(x-3, y-10, 1, 2); ctx.fillRect(x, y-10, 1, 2); ctx.fillRect(x+2, y-10, 1, 2);
 }
 
-function drawDemon(x, y, facing) {
-  // Wings
+function drawDemon(x, y, facing, phase = 0) {
+  const s = Math.sin(phase);
+  const lL = Math.max(0, s) * 2.5, rL = Math.max(0, -s) * 2.5;
+  const wingFlap = Math.cos(phase * 1.5) * 2;
+  // Wings (flap)
   ctx.fillStyle = '#3d0000';
-  ctx.beginPath(); ctx.moveTo(x-6,y-8); ctx.lineTo(x-21,y-20); ctx.lineTo(x-16,y-5); ctx.lineTo(x-21,y+2); ctx.lineTo(x-6,y); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(x+6,y-8); ctx.lineTo(x+21,y-20); ctx.lineTo(x+16,y-5); ctx.lineTo(x+21,y+2); ctx.lineTo(x+6,y); ctx.fill();
-  // Body
+  ctx.beginPath(); ctx.moveTo(x-6,y-8); ctx.lineTo(x-21,y-20 - wingFlap); ctx.lineTo(x-16,y-5); ctx.lineTo(x-21,y+2 + wingFlap); ctx.lineTo(x-6,y); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+6,y-8); ctx.lineTo(x+21,y-20 - wingFlap); ctx.lineTo(x+16,y-5); ctx.lineTo(x+21,y+2 + wingFlap); ctx.lineTo(x+6,y); ctx.fill();
+  // Body bob
+  const bob = -Math.abs(Math.cos(phase)) * 1;
+  // Hooves — independent leg animation
+  ctx.fillStyle = '#2a0000';
+  ctx.fillRect(x-8, y+10 - lL, 6, 4);
+  ctx.fillRect(x+2, y+10 - rL, 6, 4);
+  // Legs
+  ctx.fillStyle = '#6B0000';
+  ctx.fillRect(x-6, y+4 - lL, 4, 8);
+  ctx.fillRect(x+2, y+4 - rL, 4, 8);
+  // Body shifts with bob
+  y += bob;
   ctx.fillStyle = '#6B0000'; ctx.fillRect(x-7, y-10, 14, 14);
   ctx.fillStyle = '#3d0000'; ctx.fillRect(x-4, y-6, 8, 8);
-  // Hooves
-  ctx.fillStyle = '#2a0000'; ctx.fillRect(x-8, y+10, 6, 4); ctx.fillRect(x+2, y+10, 6, 4);
-  // Legs
-  ctx.fillStyle = '#6B0000'; ctx.fillRect(x-6, y+4, 4, 8); ctx.fillRect(x+2, y+4, 4, 8);
   // Arms
   ctx.fillRect(x-11, y-8, 4, 12); ctx.fillRect(x+7, y-8, 4, 12);
   ctx.fillStyle = '#3d0000'; ctx.fillRect(x-13, y+2, 4, 3); ctx.fillRect(x+9, y+2, 4, 3);
@@ -3386,12 +3450,21 @@ function drawDemon(x, y, facing) {
   if (facing > 0) ctx.fillRect(x+2, y-16, 1, 1); else ctx.fillRect(x-3, y-16, 1, 1);
 }
 
-function drawOrc(x, y, facing) {
+function drawOrc(x, y, facing, phase = 0) {
   const s = '#3a7025', ds = '#285018';
-  // Boots
-  ctx.fillStyle = '#3d2d1a'; ctx.fillRect(x-8, y+11, 6, 4); ctx.fillRect(x+2, y+11, 6, 4);
+  const sn = Math.sin(phase);
+  const lL = Math.max(0, sn) * 2.8, rL = Math.max(0, -sn) * 2.8;
+  const bob = -Math.abs(Math.cos(phase)) * 1.2;
+  // Boots — independent leg animation
+  ctx.fillStyle = '#3d2d1a';
+  ctx.fillRect(x-8, y+11 - lL, 6, 4);
+  ctx.fillRect(x+2, y+11 - rL, 6, 4);
   // Legs
-  ctx.fillStyle = s; ctx.fillRect(x-7, y+6, 5, 8); ctx.fillRect(x+2, y+6, 5, 8);
+  ctx.fillStyle = s;
+  ctx.fillRect(x-7, y+6 - lL, 5, 8);
+  ctx.fillRect(x+2, y+6 - rL, 5, 8);
+  // Body bob
+  y += bob;
   // Body
   ctx.fillRect(x-8, y-8, 16, 15);
   // Armor
@@ -4536,8 +4609,11 @@ function drawCredits() {
 }
 
 // --- Story Boss Draw ---
-function drawStoryBoss(x, y, facing, charging, idx) {
+function drawStoryBoss(x, y, facing, charging, idx, phase = 0) {
   const t = Date.now() / 150;
+  const sn = Math.sin(phase);
+  const lL = Math.max(0, sn) * 4, rL = Math.max(0, -sn) * 4;
+  const bob = -Math.abs(Math.cos(phase)) * 1.5;
   // Each chapter boss has a distinct look
   const palettes = [
     { body:'#8B6914', armor:'#5a4010', eye:'#ff4400', trim:'#FFD700' }, // 0 Gatekeeper - gold armored
@@ -4566,11 +4642,15 @@ function drawStoryBoss(x, y, facing, charging, idx) {
     ctx.beginPath(); ctx.moveTo(x+10,y-28); ctx.lineTo(x+56,y-55); ctx.stroke();
   }
 
-  // Legs
+  // Legs — animated
   ctx.fillStyle = pal.body;
-  ctx.fillRect(x-13, y, 11, 18); ctx.fillRect(x+2, y, 11, 18);
+  ctx.fillRect(x-13, y - lL, 11, 18);
+  ctx.fillRect(x+2,  y - rL, 11, 18);
   ctx.fillStyle = pal.armor;
-  ctx.fillRect(x-15, y+12, 13, 8); ctx.fillRect(x+2, y+12, 13, 8);
+  ctx.fillRect(x-15, y+12 - lL, 13, 8);
+  ctx.fillRect(x+2,  y+12 - rL, 13, 8);
+  // Upper body bob
+  y += bob;
 
   // Body
   ctx.fillStyle = pal.body; ctx.fillRect(x-16, y-28, 32, 30);

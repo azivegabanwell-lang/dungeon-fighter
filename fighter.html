@@ -694,6 +694,28 @@ function matchOver(winTeam) {
 // RENDERING
 // =====================================================================
 function limb(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+// Darken a #rrggbb color (fr<1 → darker) for trim/shading.
+function darken(hex, fr) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, ((n >> 16) & 255) * fr | 0);
+  const g = Math.max(0, ((n >> 8) & 255) * fr | 0);
+  const b = Math.max(0, (n & 255) * fr | 0);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+// Begin a rounded-rect path (call ctx.fill()/ctx.stroke() after).
+function rpath(x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+}
+// A chunky limb: a thick rounded stroke with a round cap (fist or shoe).
+function drawLimb(x1, y1, x2, y2, limbCol, capCol, capR) {
+  ctx.strokeStyle = limbCol; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  if (capCol) {
+    ctx.fillStyle = capCol; ctx.beginPath(); ctx.arc(x2, y2, capR, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.stroke();
+  }
+}
 function attackExt(f, name) {
   const m = MOVES[name], t = f.stateTimer;
   let frac;
@@ -703,14 +725,19 @@ function attackExt(f, name) {
   const reach = name === 'punch' ? CHARS[f.charId].punchRange : CHARS[f.charId].kickRange;
   return frac * (reach * 0.5 + 12);
 }
-function drawKO(f, col) {
+function drawKO(f, col, skin) {
+  skin = skin || '#f1c197';
   const x = f.x, y = GROUND_Y;
-  ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.lineCap = 'round';
-  limb(x - 16, y - 4, x + 14, y - 4);          // body lying
-  ctx.beginPath(); ctx.arc(x - 22, y - 7, 9, 0, Math.PI * 2); ctx.stroke(); // head
-  limb(x + 2, y - 4, x + 12, y);               // leg
-  limb(x + 2, y - 4, x + 12, y - 11);          // leg
-  limb(x - 10, y - 4, x - 4, y - 13);          // arm
+  ctx.save(); ctx.translate(x, y - 7); ctx.rotate(f.facing * 0.05);
+  rpath(-15, -9, 30, 15, 6); ctx.fillStyle = col; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();         // body lying
+  rpath(-27, -9, 15, 15, 5); ctx.fillStyle = skin; ctx.fill(); ctx.stroke();    // head
+  drawLimb(10, -2, 19, 5, col, skin, 4);                                        // legs sprawled
+  drawLimb(10, -2, 19, -8, col, skin, 4);
+  drawLimb(-4, 4, 4, 12, col, skin, 4);                                         // arm
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;                                // X eye
+  ctx.beginPath(); ctx.moveTo(-23, -4); ctx.lineTo(-19, 0); ctx.moveTo(-19, -4); ctx.lineTo(-23, 0); ctx.stroke();
+  ctx.restore();
 }
 function drawSpecialArms(f, sx, armY, fc) {
   limb(sx, armY, sx + fc * 18, armY - 4);
@@ -720,71 +747,86 @@ function drawSpecialArms(f, sx, armY, fc) {
 }
 function drawFighter(f) {
   const fc = f.facing, col = f.color, x = f.x;
+  const skin = '#f1c197', trim = darken(col, 0.55);
+
   // shadow
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   const airH = GROUND_Y - f.y;
-  ctx.beginPath(); ctx.ellipse(x, GROUND_Y + 3, Math.max(8, 16 - airH * 0.03), 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x, GROUND_Y + 3, Math.max(9, 18 - airH * 0.03), 5, 0, 0, Math.PI * 2); ctx.fill();
 
-  if (f.state === 'ko') { drawKO(f, col); return; }
+  if (f.state === 'ko') { drawKO(f, col, skin); return; }
 
-  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-
-  const crouch = (f.state === 'block') ? 14 : 0;
+  const crouch = (f.state === 'block') ? 12 : 0;
   const y = f.y;
-  const hipY = y - 30 + crouch;
-  const shoulderY = y - 60 + crouch;
-  const headCY = y - 74 + crouch, headR = 10;
-  const lean = (f.state === 'hitstun') ? f.recoil * 8 : 0;
-  const bob = (f.state === 'idle') ? Math.sin(f.bobPhase) * 1.5 : 0;
-  const sx = x + lean;
+  const bob = (f.state === 'idle') ? Math.sin(f.bobPhase) * 1.2 : 0;
+  const lean = (f.state === 'hitstun') ? f.recoil * 7 : 0;
+  const cx = x + lean;
+  const hipY = y - 22 + crouch;
+  const torsoTop = y - 52 + crouch + bob;
+  const shoulderY = torsoTop + 6;
+  const headTop = torsoTop - 18;
 
-  // legs
-  let swing = (f.state === 'walk' && f.onGround) ? Math.sin(f.walkPhase) * 11 : 0;
+  // ---- LEGS (drawn first, behind torso) ----
+  const swing = (f.state === 'walk' && f.onGround) ? Math.sin(f.walkPhase) * 7 : 0;
   if (f.attackName === 'kick') {
     const e = attackExt(f, 'kick');
-    limb(x, hipY, x + fc * (14 + e), y - 18);  // kicking leg forward/up
-    limb(x, hipY, x - fc * 8, y);              // support leg
+    drawLimb(x - fc * 4, hipY, x - fc * 8, y - 3, col, trim, 5);          // support leg
+    drawLimb(x, hipY, x + fc * (16 + e), hipY - 8, col, trim, 6);         // kicking leg
   } else if (f.state === 'jump') {
-    limb(x, hipY, x - 6, y - 6);
-    limb(x, hipY, x + 10, y - 4);
+    drawLimb(x - 5, hipY, x - 10, y - 16, col, trim, 5);
+    drawLimb(x + 5, hipY, x + 11, y - 14, col, trim, 5);
   } else {
-    limb(x, hipY, x - 9 - swing, y);
-    limb(x, hipY, x + 9 + swing, y);
+    drawLimb(x - 6, hipY, x - 7 + swing, y - 3, col, trim, 5);
+    drawLimb(x + 6, hipY, x + 7 - swing, y - 3, col, trim, 5);
   }
 
-  // torso
-  limb(x, hipY + bob, sx, shoulderY + bob);
+  // ---- TORSO ----
+  rpath(cx - 14, torsoTop, 28, 30, 6); ctx.fillStyle = col; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(cx - 11, torsoTop + 4, 9, 12); // chest highlight
+  ctx.fillStyle = trim; ctx.fillRect(cx - 14, torsoTop + 22, 28, 5);                    // belt
 
-  // arms
-  const armY = shoulderY + 4 + bob;
+  // ---- ARMS (over torso) ----
+  const aSwing = (f.state === 'walk') ? Math.sin(f.walkPhase) * 6 : 0;
   if (f.attackName === 'punch') {
     const e = attackExt(f, 'punch');
-    limb(sx, armY, sx + fc * (14 + e), armY - 2);
-    limb(sx, armY, sx - fc * 8, armY + 10);
-  } else if (f.state === 'block') {
-    limb(sx, armY, sx + fc * 11, armY - 6);
-    limb(sx, armY, sx + fc * 13, armY + 4);
+    drawLimb(cx - fc * 6, shoulderY + 2, cx - fc * 9, shoulderY + 13, col, skin, 5);    // rear guard
+    drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6);  // punch
   } else if (f.attackName === 'special') {
-    drawSpecialArms(f, sx, armY, fc);
+    drawLimb(cx + fc * 5, shoulderY, cx + fc * 18, shoulderY - 3, col, skin, 6);
+    drawLimb(cx + fc * 5, shoulderY + 4, cx + fc * 17, shoulderY + 8, col, skin, 6);
+    ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  } else if (f.state === 'block') {
+    drawLimb(cx + fc * 4, shoulderY, cx + fc * 12, shoulderY - 3, col, skin, 5);
+    drawLimb(cx + fc * 4, shoulderY + 6, cx + fc * 13, shoulderY + 8, col, skin, 5);
   } else if (f.state === 'jump') {
-    limb(sx, armY, sx - fc * 8, armY - 8);
-    limb(sx, armY, sx + fc * 8, armY - 8);
+    drawLimb(cx - fc * 5, shoulderY, cx - fc * 9, shoulderY - 10, col, skin, 5);
+    drawLimb(cx + fc * 5, shoulderY, cx + fc * 10, shoulderY - 9, col, skin, 5);
   } else {
-    const aSwing = (f.state === 'walk') ? Math.sin(f.walkPhase) * 8 : 0;
-    limb(sx, armY, sx + fc * 6 - aSwing, armY + 12);
-    limb(sx, armY, sx - fc * 2 + aSwing, armY + 12);
+    drawLimb(cx - fc * 5, shoulderY + 1, cx - fc * 7 + aSwing, shoulderY + 13, col, skin, 5);
+    drawLimb(cx + fc * 5, shoulderY + 1, cx + fc * 9 - aSwing, shoulderY + 7, col, skin, 5); // guard fist
   }
 
-  // head + eye
-  ctx.beginPath(); ctx.arc(sx, headCY + bob, headR, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx + fc * 4, headCY - 2 + bob, 2, 0, Math.PI * 2); ctx.fill();
+  // ---- HEAD ----
+  rpath(cx - 9, headTop, 18, 18, 5); ctx.fillStyle = skin; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
+  ctx.fillStyle = col; ctx.fillRect(cx - 9, headTop + 2, 18, 4);                          // headband
+  if (fc > 0) ctx.fillRect(cx - 13, headTop + 3, 5, 9); else ctx.fillRect(cx + 8, headTop + 3, 5, 9); // band tail
+  // face (eyes + brow, facing direction)
+  const ex = cx + fc * 1;
+  ctx.fillStyle = '#222';
+  ctx.fillRect(ex + fc * 1, headTop + 9, 2, 3);
+  ctx.fillRect(ex + fc * 5, headTop + 9, 2, 3);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = '#222';
+  ctx.beginPath(); ctx.moveTo(ex, headTop + 8); ctx.lineTo(ex + fc * 7, headTop + 9); ctx.stroke();
 
-  // hit flash
+  // ---- hit flash ----
   if (f.hitFlash > 0) {
-    ctx.globalAlpha = Math.min(1, f.hitFlash / 0.12) * 0.8;
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 5;
-    limb(x, hipY, sx, shoulderY);
-    ctx.beginPath(); ctx.arc(sx, headCY, headR, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = Math.min(1, f.hitFlash / 0.12) * 0.6;
+    ctx.fillStyle = '#fff';
+    rpath(cx - 14, torsoTop, 28, 30, 6); ctx.fill();
+    rpath(cx - 9, headTop, 18, 18, 5); ctx.fill();
     ctx.globalAlpha = 1;
   }
 }

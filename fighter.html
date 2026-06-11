@@ -173,9 +173,9 @@ const CHARS = [
   { name: 'Vex', color: '#2ecc71', style: 'Trickster. Freezes a foe solid to combo them.',
     walkSpeed: 220, jumpMul: 1.15, maxHp: 100, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
     special: 'freeze', specialName: 'STASIS' },
-  { name: 'Echo', color: '#f1c40f', style: 'Lancer. A vortex that drags foes into reach.',
+  { name: 'Echo', color: '#f1c40f', style: 'Lancer. Hurls a piercing javelin from afar.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
-    special: 'pull', specialName: 'VORTEX' },
+    special: 'javelin', specialName: 'JAVELIN' },
   { name: 'Mirror', color: '#c9d2e0', style: 'Counter. Parries the next hit, then punishes hard.',
     walkSpeed: 205, jumpMul: 1.0,  maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
     special: 'counter', specialName: 'RIPOSTE' },
@@ -224,7 +224,7 @@ const SPECIALS = {
   lifesteal:   { dur: 0.45, startup: 0.10 },
   berserk:     { dur: 0.40 },
   freeze:      { dur: 0.40, startup: 0.12 },
-  pull:        { dur: 0.50 },
+  javelin:     { dur: 0.40, startup: 0.14 },
   counter:     { dur: 0.55 },
   heal:        { dur: 0.80 },
   grab:        { dur: 0.45, startup: 0.10 },
@@ -237,7 +237,7 @@ const SPECIALS = {
   thorns:      { dur: 0.30 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
-const ZONER_SPECIALS = new Set(['beam']);
+const ZONER_SPECIALS = new Set(['beam', 'javelin']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -589,6 +589,11 @@ function spawnFireball(f) {
     team: f.team, owner: f, damage: 16, life: 1.6, r: 11, color: CHARS[f.charId].color,
   });
 }
+// Echo's javelin: a fast piercing spear that flies across the screen.
+function spawnJavelin(f) {
+  state.projectiles.push({ x: f.x + f.facing * 30, y: f.y - 52, vx: f.facing * 620, dir: f.facing,
+    team: f.team, owner: f, damage: 18, life: 1.4, r: 10, color: CHARS[f.charId].color, kind: 'spear' });
+}
 // Rune's trap: a stationary rune that arms, then detonates when an enemy steps near.
 function spawnTrap(f) {
   state.traps.push({ x: f.x, y: GROUND_Y, team: f.team, owner: f, arm: 0.35, life: 9,
@@ -647,13 +652,8 @@ function updateSpecial(f, dt) {
     if (t >= sp.dur) endAttack(f);                          // buff applied on activation; just play the flex
   } else if (name === 'freeze') {
     if (t >= sp.dur) endAttack(f);                          // target frozen on activation
-  } else if (name === 'pull') {
-    for (const o of state.fighters) {                       // vortex drags opponents toward Echo
-      if (o.team === f.team || o.state === 'ko' || o.invuln > 0 || o.frozen > 0) continue;
-      const dx = f.x - o.x, d = Math.abs(dx) || 1;
-      if (d < 420) o.vx += (dx / d) * 900 * dt;
-    }
-    if (Math.random() < 0.6) spawnParticles(f.x + (Math.random() * 60 - 30), f.y - 30, f.color, 1, 0.5);
+  } else if (name === 'javelin') {
+    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnJavelin(f); }
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'counter') {
     f.countering = (t >= 0.06 && t <= 0.5);               // parry window
@@ -1117,11 +1117,19 @@ function drawBeams() {
 function drawProjectiles() {
   for (const p of state.projectiles) {
     ctx.save();
-    ctx.shadowColor = p.color; ctx.shadowBlur = 16;
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;
-    ctx.beginPath(); ctx.arc(p.x - p.vx * 0.004, p.y, p.r * 0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = p.color; ctx.shadowBlur = 14;
+    if (p.kind === 'spear') {
+      const d = p.dir || (p.vx >= 0 ? 1 : -1);
+      ctx.strokeStyle = '#cda86a'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p.x - d * 16, p.y); ctx.lineTo(p.x + d * 12, p.y); ctx.stroke(); // shaft
+      ctx.fillStyle = p.color; // spear tip
+      ctx.beginPath(); ctx.moveTo(p.x + d * 22, p.y); ctx.lineTo(p.x + d * 10, p.y - 5); ctx.lineTo(p.x + d * 10, p.y + 5); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(p.x - p.vx * 0.004, p.y, p.r * 0.45, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 }
@@ -1553,7 +1561,7 @@ function serializeSnapshot() {
       hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
       walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering, buffTimer: f.buffTimer, frozen: f.frozen,
       poisonTimer: f.poisonTimer, slowTimer: f.slowTimer, shieldTimer: f.shieldTimer, thornsTimer: f.thornsTimer })),
-    projectiles: state.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color })),
+    projectiles: state.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color, kind: p.kind, dir: p.dir })),
     shockwaves: state.shockwaves.map(s => ({ x: s.x, r: s.r, life: s.life, color: s.color })),
     traps: state.traps.map(t => ({ x: t.x, arm: t.arm, color: t.color })),
     floatTexts: state.floatTexts.map(t => ({ x: t.x, y: t.y, text: t.text, color: t.color, life: t.life, maxLife: t.maxLife })),
@@ -1570,7 +1578,7 @@ function applySnapshot(s) {
   } else {
     state.fighters = s.fighters.map(sf => { const f = makeFighter({ charId: sf.charId, team: sf.team, x: sf.x, facing: sf.facing }); Object.assign(f, sf); return f; });
   }
-  state.projectiles = s.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color, vx: 0 }));
+  state.projectiles = s.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color, vx: 0, kind: p.kind, dir: p.dir }));
   state.shockwaves = s.shockwaves.map(w => ({ x: w.x, y: GROUND_Y, r: w.r, maxR: w.r, life: w.life, color: w.color }));
   state.traps = s.traps.map(t => ({ x: t.x, y: GROUND_Y, arm: t.arm, color: t.color, life: 1 }));
   state.floatTexts = s.floatTexts.map(t => ({ x: t.x, y: t.y, text: t.text, color: t.color, life: t.life, maxLife: t.maxLife }));

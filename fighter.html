@@ -90,6 +90,9 @@
   <!-- ONLINE 2P LOBBY (content filled in by renderOnlineUI) -->
   <div class="overlay hidden" id="onlineScreen"></div>
 
+  <!-- BETWEEN ROUNDS (offline) -->
+  <div class="overlay hidden" id="roundScreen"></div>
+
   <!-- MATCH OVER -->
   <div class="overlay hidden" id="matchScreen">
     <h1 id="matchText">YOU WIN!</h1>
@@ -881,14 +884,31 @@ function timeoutWinner() {
   if (h0 > h1) return 0; if (h1 > h0) return 1; return 'draw';
 }
 function endRound(r) {
-  state.mode = 'roundOver'; state.roundOverTimer = 2.6; state.lastWinner = r;
-  if (r === 'draw') state.banner = 'DRAW';
-  else state.banner = teamName(r).toUpperCase() + ' WINS ROUND ' + state.roundNum;
-  if (r !== 'draw') state.teamRounds[r]++;
+  state.lastWinner = r;
+  if (r === 'draw') { state.banner = 'DRAW'; }
+  else { state.teamRounds[r]++; state.banner = teamName(r).toUpperCase() + ' WINS ROUND ' + state.roundNum; }
+  // Match decided? go straight to the match-over screen.
+  if (r !== 'draw' && state.teamRounds[r] >= ROUNDS_TO_WIN) { matchOver(r); return; }
+  state.mode = 'roundOver';
+  showRoundScreen();
+}
+function showRoundScreen() {
+  const el = document.getElementById('roundScreen');
+  el.innerHTML = '<h1>' + state.banner + '</h1>' +
+    '<p>' + teamName(0).toUpperCase() + '  ' + state.teamRounds[0] + ' — ' + state.teamRounds[1] + '  ' + teamName(1).toUpperCase() + '</p>' +
+    '<div class="row"><button class="btn" onclick="continueRound()">Next Round</button>' +
+    '<button class="btn" onclick="changeFighter()">Change Fighter</button></div>';
+  el.classList.remove('hidden');
+}
+function continueRound() {
+  document.getElementById('roundScreen').classList.add('hidden');
+  nextRound();
+}
+function changeFighter() {
+  document.getElementById('roundScreen').classList.add('hidden');
+  showSelect(state.is2v2); // pick a new fighter (starts a fresh match)
 }
 function nextRound() {
-  const r = state.lastWinner;
-  if (r !== 'draw' && state.teamRounds[r] >= ROUNDS_TO_WIN) { matchOver(r); return; }
   state.roundNum++;
   setupRound();
   state.mode = 'fight';
@@ -1274,11 +1294,7 @@ function update(dt) {
   updateParticles(dt); updateFloatTexts(dt);
   mouseClicked = false;
 
-  if (state.mode === 'roundOver') {
-    state.roundOverTimer -= dt;
-    if (state.roundOverTimer <= 0) nextRound();
-    clearJustPressed(); return;
-  }
+  if (state.mode === 'roundOver') { clearJustPressed(); mouseClicked = false; return; } // wait for a button
   if (state.mode !== 'fight') { clearJustPressed(); return; }
   if (state.hitstop > 0) { state.hitstop -= dt; clearJustPressed(); return; }
 
@@ -1312,6 +1328,7 @@ function hideOverlays() {
   document.getElementById('matchScreen').classList.add('hidden');
   document.getElementById('pauseScreen').classList.add('hidden');
   document.getElementById('onlineScreen').classList.add('hidden');
+  document.getElementById('roundScreen').classList.add('hidden');
 }
 function pauseGame() {
   state.mode = 'paused';
@@ -1454,6 +1471,16 @@ function onlinePickChar(i) {
   if (!net || net.localReady) return;     // locked once you're ready
   net.localChar = i; send({ type: 'char', id: i }); renderOnlineUI();
 }
+function onlineCharGridHTML() {
+  let grid = '<div class="row" style="max-width:780px;gap:5px;">';
+  for (let i = 0; i < CHARS.length; i++) {
+    const c = CHARS[i], sel = (i === net.localChar);
+    grid += '<button class="btn" style="font-size:12px;padding:6px 9px;' +
+      (sel ? 'background:' + c.color + ';color:#111;border-color:#fff;' : 'border-color:' + c.color + ';') +
+      '" onclick="onlinePickChar(' + i + ')">' + c.name + '</button>';
+  }
+  return grid + '</div>';
+}
 function onlineLeave() { send({ type: 'leave' }); teardownNet(); showTitle(); }
 function teardownNet() {
   if (net) {
@@ -1573,24 +1600,18 @@ function renderOnlineUI() {
   } else if (net.phase === 'lobby') {
     const cnt = (net.localReady ? 1 : 0) + (net.remoteReady ? 1 : 0);
     const opp = net.remoteChar != null ? CHARS[net.remoteChar].name : '…';
-    let grid = '<div class="row" style="max-width:780px;gap:5px;">';
-    for (let i = 0; i < CHARS.length; i++) {
-      const c = CHARS[i], sel = (i === net.localChar);
-      grid += '<button class="btn" style="font-size:12px;padding:6px 9px;' +
-        (sel ? 'background:' + c.color + ';color:#111;border-color:#fff;' : 'border-color:' + c.color + ';') +
-        '" onclick="onlinePickChar(' + i + ')">' + c.name + '</button>';
-    }
-    grid += '</div>';
     const ready = (net.localChar == null) ? '<p>Pick your fighter above.</p>'
       : (net.localReady ? '<p>Ready! Waiting for your friend&hellip; (' + cnt + '/2)</p>'
         : '<button class="btn" onclick="onlineReady()">Ready</button><p>' + cnt + '/2 ready</p>');
-    h = '<h2>Choose your fighter</h2>' + grid + '<p>Opponent picked: <b>' + opp + '</b></p>' + ready + leaveBtn;
+    h = '<h2>Choose your fighter</h2>' + onlineCharGridHTML() + '<p>Opponent picked: <b>' + opp + '</b></p>' + ready + leaveBtn;
   } else if (net.phase === 'rematch') {
     const cnt = (net.localReady ? 1 : 0) + (net.remoteReady ? 1 : 0);
+    const opp = net.remoteChar != null ? CHARS[net.remoteChar].name : '…';
     const btn = net.localReady
       ? '<p>Waiting for your friend&hellip; (' + cnt + '/2 ready)</p>'
       : '<button class="btn" onclick="onlineReady()">Play Again</button><p>' + cnt + '/2 ready</p>';
-    h = '<h1>' + (state.banner || '') + '</h1><h2>Play again?</h2>' + btn + leaveBtn;
+    h = '<h2>' + (state.banner || '') + '</h2><p>Change fighter, or play again:</p>' + onlineCharGridHTML() +
+        '<p>Opponent: <b>' + opp + '</b></p>' + btn + leaveBtn;
   } else if (net.phase === 'error') {
     h = '<h2>Connection problem</h2><p style="color:#f88">' + (net.error || '') + '</p>' +
         '<button class="btn" onclick="onlineOpen()">Try Again</button><button class="btn" onclick="showTitle()">Main Menu</button>';

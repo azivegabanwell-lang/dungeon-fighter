@@ -1477,6 +1477,7 @@ function onlineReady() {
 }
 function onlinePickChar(i) {
   if (!net || net.localReady) return;     // locked once you're ready
+  if (net.phase !== 'lobby' && net.phase !== 'rematch') return; // only between rounds, never mid-fight
   net.localChar = i; send({ type: 'char', id: i }); renderOnlineUI();
 }
 function onlineCharGridHTML() {

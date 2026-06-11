@@ -65,6 +65,7 @@
     <div class="row">
       <button class="btn" id="btn1v1">1 v 1</button>
       <button class="btn" id="btn2v2">2 v 2</button>
+      <button class="btn" id="btnOnline">Online 2P</button>
     </div>
     <p class="small">Move: A / D &nbsp; Jump: W &nbsp; Block: S &nbsp; Punch: J &nbsp; Kick: K &nbsp; Special: L</p>
   </div>
@@ -86,6 +87,9 @@
     <p class="small">Press P or Esc to resume</p>
   </div>
 
+  <!-- ONLINE 2P LOBBY (content filled in by renderOnlineUI) -->
+  <div class="overlay hidden" id="onlineScreen"></div>
+
   <!-- MATCH OVER -->
   <div class="overlay hidden" id="matchScreen">
     <h1 id="matchText">YOU WIN!</h1>
@@ -97,6 +101,7 @@
   </div>
 </div>
 
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 // =====================================================================
 // STICK BRAWLERS — a single-file 2D fighting game
@@ -302,6 +307,7 @@ function freshState() {
     roundTime: ROUND_TIME, roundNum: 1, teamRounds: [0, 0],
     banner: '', roundOverTimer: 0, lastWinner: -1,
     shake: 0, hitstop: 0,
+    countdown: 0, online_over: false,
   };
 }
 state = freshState();
@@ -313,7 +319,8 @@ let lastDt = 1 / 60;
 function makeFighter(spec) {
   const ch = CHARS[spec.charId];
   return {
-    charId: spec.charId, team: spec.team, isPlayer: spec.isPlayer, isCPU: !spec.isPlayer,
+    charId: spec.charId, team: spec.team, isPlayer: !!spec.isPlayer, isCPU: !spec.isPlayer,
+    controller: spec.controller || (spec.isPlayer ? 'local' : 'cpu'), // 'local' | 'remote' | 'cpu'
     name: ch.name, color: ch.color,
     x: spec.x, y: GROUND_Y, vx: 0, vy: 0, facing: spec.facing, onGround: true,
     w: 34, h: 86,
@@ -694,7 +701,10 @@ function updateFighter(f, dt) {
   } else if (f.attackName === 'special') {
     updateSpecial(f, dt);
   } else {
-    const intent = f.isPlayer ? humanIntent() : cpuIntent(f, dt);
+    let intent;
+    if (f.controller === 'local') intent = humanIntent();
+    else if (f.controller === 'remote') intent = (net && net.remoteInput) ? net.remoteInput : NO_INTENT;
+    else intent = cpuIntent(f, dt);
     applyIntent(f, intent);
   }
 
@@ -1058,7 +1068,7 @@ function drawHUD() {
   drawPauseButton();
 }
 function drawPauseButton() {
-  if (state.mode !== 'fight') return;
+  if (state.mode !== 'fight' || (net && net.active)) return; // no pausing in online play
   const b = PAUSE_BTN;
   ctx.fillStyle = inPauseBtn() ? 'rgba(80,90,130,0.85)' : 'rgba(0,0,0,0.45)';
   ctx.fillRect(b.x, b.y, b.w, b.h);
@@ -1088,12 +1098,19 @@ function draw() {
   drawTraps();
   if (state.fighters.length) {
     for (const f of state.fighters) drawFighter(f);
-    for (const f of state.fighters) if (f.isPlayer) drawMarker(f);
+    for (const f of state.fighters) if ((net && net.active) ? f.team === net.myTeam : f.isPlayer) drawMarker(f);
     drawShockwaves(); drawProjectiles(); drawParticles(); drawFloatTexts();
   }
   ctx.restore();
   if (state.mode === 'fight' || state.mode === 'roundOver' || state.mode === 'paused') drawHUD();
   if (state.mode === 'roundOver') drawBanner();
+  if (net && net.active && state.countdown > 0 && !state.online_over) {
+    const c = state.countdown;
+    const txt = c > 2.4 ? '3' : c > 1.4 ? '2' : c > 0.4 ? '1' : 'GO!';
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, H / 2 - 60, W, 120);
+    ctx.fillStyle = '#ffd76b'; ctx.font = 'bold 80px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText(txt, W / 2, H / 2 + 28); ctx.textAlign = 'left';
+  }
   if (DEBUG && state.fighters.length) drawHitboxes();
 }
 
@@ -1102,6 +1119,9 @@ function draw() {
 // =====================================================================
 function update(dt) {
   lastDt = dt;
+
+  // Online play runs its own loop (host simulates, guest renders snapshots).
+  if (net && net.active) { updateOnline(dt); return; }
 
   // Pause toggle (P / Esc key, or clicking the on-screen pause button)
   const pausePressed = justPressed.has('KeyP') || justPressed.has('Escape') ||
@@ -1153,6 +1173,7 @@ function hideOverlays() {
   document.getElementById('selectScreen').classList.add('hidden');
   document.getElementById('matchScreen').classList.add('hidden');
   document.getElementById('pauseScreen').classList.add('hidden');
+  document.getElementById('onlineScreen').classList.add('hidden');
 }
 function pauseGame() {
   state.mode = 'paused';
@@ -1163,6 +1184,7 @@ function resumeGame() {
   state.mode = 'fight';
 }
 function showTitle() {
+  teardownNet();
   state = freshState();
   hideOverlays();
   document.getElementById('titleScreen').classList.remove('hidden');
@@ -1195,6 +1217,217 @@ document.getElementById('btnAgain').onclick = () => showSelect(state.is2v2);
 document.getElementById('btnMenu').onclick = () => showTitle();
 document.getElementById('btnResume').onclick = () => resumeGame();
 document.getElementById('btnQuit').onclick = () => showTitle();
+document.getElementById('btnOnline').onclick = () => onlineOpen();
+
+// =====================================================================
+// ONLINE 2-PLAYER (peer-to-peer via WebRTC / PeerJS)
+// The host runs the authoritative match and streams snapshots; the guest
+// sends its input and renders what it receives. Players join by a code.
+// =====================================================================
+let net = null;
+const NO_INTENT = { left: false, right: false, jump: false, block: false, punch: false, kick: false, special: false };
+
+function genCode() {
+  const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = ''; for (let i = 0; i < 4; i++) s += cs[Math.floor(Math.random() * cs.length)];
+  return s;
+}
+function baseNet() {
+  return { active: false, isHost: false, code: '', peer: null, conn: null, connected: false,
+    phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '' };
+}
+function send(obj) { try { if (net && net.conn && net.conn.open) net.conn.send(obj); } catch (e) {} }
+function notify(msg) { if (typeof alert === 'function') alert(msg); }
+
+function onlineOpen() {
+  teardownNet(); net = baseNet(); net.phase = 'menu';
+  state = freshState(); state.mode = 'onlineMenu';
+  hideOverlays(); renderOnlineUI();
+}
+function peerErr(e) {
+  const t = (e && e.type) || '';
+  if (t === 'unavailable-id') return 'That code is taken — try Create again.';
+  if (t === 'peer-unavailable') return 'No game found with that code.';
+  if (t === 'network' || t === 'server-error') return 'Network problem reaching the connection service.';
+  return 'Connection error' + (t ? (': ' + t) : '.');
+}
+function onlineCreate() {
+  if (typeof Peer === 'undefined') { net.phase = 'error'; net.error = 'Networking failed to load (check your internet).'; renderOnlineUI(); return; }
+  net.isHost = true; net.myTeam = 0; net.code = genCode(); net.phase = 'connecting'; net.error = ''; renderOnlineUI();
+  try {
+    net.peer = new Peer('sbrawl-' + net.code);
+    net.peer.on('open', () => { net.phase = 'waiting'; renderOnlineUI(); });
+    net.peer.on('connection', c => setupConn(c));
+    net.peer.on('error', e => { net.phase = 'error'; net.error = peerErr(e); renderOnlineUI(); });
+  } catch (e) { net.phase = 'error'; net.error = String(e); renderOnlineUI(); }
+}
+function onlineJoin() {
+  if (typeof Peer === 'undefined') { net.phase = 'error'; net.error = 'Networking failed to load (check your internet).'; renderOnlineUI(); return; }
+  const inp = document.getElementById('joinCode');
+  const code = (inp ? inp.value : '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  if (code.length < 4) { net.error = 'Enter the 4-character code.'; renderOnlineUI(); return; }
+  net.isHost = false; net.myTeam = 1; net.code = code; net.phase = 'connecting'; net.error = ''; renderOnlineUI();
+  try {
+    net.peer = new Peer();
+    net.peer.on('open', () => {
+      setupConn(net.peer.connect('sbrawl-' + code, { reliable: true }));
+      setTimeout(() => { if (net && !net.connected && net.phase === 'connecting') { net.phase = 'error'; net.error = 'Could not find that game. Check the code.'; renderOnlineUI(); } }, 9000);
+    });
+    net.peer.on('error', e => { net.phase = 'error'; net.error = peerErr(e); renderOnlineUI(); });
+  } catch (e) { net.phase = 'error'; net.error = String(e); renderOnlineUI(); }
+}
+function setupConn(c) {
+  net.conn = c;
+  c.on('open', () => { net.connected = true; net.phase = 'lobby'; net.localReady = false; net.remoteReady = false; renderOnlineUI(); });
+  c.on('data', onData);
+  c.on('close', onPeerLeft);
+  c.on('error', onPeerLeft);
+}
+function onData(msg) {
+  if (!msg || !net) return;
+  if (msg.type === 'ready') { net.remoteReady = true; maybeStart(); renderOnlineUI(); }
+  else if (msg.type === 'start') { setupOnlineRound(msg.lineup); net.phase = 'fight'; renderOnlineUI(); }
+  else if (msg.type === 'input') { net.remoteInput = msg.i || NO_INTENT; }
+  else if (msg.type === 'snap') { if (!net.isHost) applySnapshot(msg.s); }
+  else if (msg.type === 'leave') { notify('Your friend left the game.'); teardownNet(); showTitle(); }
+}
+function onPeerLeft() {
+  if (!net) return;
+  if (net.active || net.connected) { teardownNet(); showTitle(); notify('Connection to your friend was lost.'); }
+}
+function maybeStart() {
+  if (net.isHost && net.localReady && net.remoteReady) {
+    const lineup = makeOnlineLineup();
+    setupOnlineRound(lineup);
+    net.phase = 'fight';
+    send({ type: 'start', lineup });
+    renderOnlineUI();
+  }
+}
+function onlineReady() {
+  if (!net || net.localReady) return;
+  net.localReady = true; send({ type: 'ready' }); maybeStart(); renderOnlineUI();
+}
+function onlineLeave() { send({ type: 'leave' }); teardownNet(); showTitle(); }
+function teardownNet() {
+  if (net) {
+    try { if (net.conn) net.conn.close(); } catch (e) {}
+    try { if (net.peer) net.peer.destroy(); } catch (e) {}
+  }
+  net = null;
+}
+function makeOnlineLineup() {
+  const a = Math.floor(Math.random() * CHARS.length);
+  let b; do { b = Math.floor(Math.random() * CHARS.length); } while (b === a);
+  return [ { charId: a, team: 0, controller: 'local',  x: 300, facing: 1 },
+           { charId: b, team: 1, controller: 'remote', x: 600, facing: -1 } ];
+}
+function setupOnlineRound(lineup) {
+  state.lineup = lineup;
+  state.fighters = lineup.map(makeFighter);
+  state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = [];
+  state.countdown = 3.4; state.roundTime = ROUND_TIME; state.banner = ''; state.online_over = false;
+  state.mode = 'fight';
+  net.active = true; net.localReady = false; net.remoteReady = false;
+  hideOverlays(); renderOnlineUI();
+}
+function updateOnline(dt) {
+  if (net.isHost) updateOnlineHost(dt); else updateOnlineGuest(dt);
+  clearJustPressed(); mouseClicked = false;
+}
+function updateOnlineHost(dt) {
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 30);
+  if (net.phase !== 'fight' || state.online_over) return;
+  if (state.countdown > 0) {
+    state.countdown -= dt;
+    for (const f of state.fighters) f.bobPhase += dt * 4;
+  } else {
+    state.roundTime -= dt;
+    updateParticles(dt); updateFloatTexts(dt);
+    for (const f of state.fighters) updateFighter(f, dt);
+    resolveCombat();
+    updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
+    const r = checkRoundOver(state.fighters);
+    if (r !== -1 || state.roundTime <= 0) {
+      const w = (r === -1) ? timeoutWinner() : r;
+      state.banner = (w === 'draw') ? 'DRAW' : (teamName(w).toUpperCase() + ' WINS!');
+      state.online_over = true; net.phase = 'rematch'; net.localReady = false; net.remoteReady = false;
+      renderOnlineUI();
+    }
+  }
+  send({ type: 'snap', s: serializeSnapshot() });
+}
+function updateOnlineGuest(dt) {
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 30);
+  if (net.phase === 'fight' && state.countdown <= 0 && !state.online_over) send({ type: 'input', i: humanIntent() });
+  updateParticles(dt); updateFloatTexts(dt);
+}
+function serializeSnapshot() {
+  return {
+    phase: state.online_over ? 'over' : (state.countdown > 0 ? 'count' : 'fight'),
+    countdown: state.countdown, roundTime: state.roundTime, banner: state.banner,
+    fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing,
+      state: f.state, attackName: f.attackName, specialName: f.specialName, stateTimer: f.stateTimer,
+      hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
+      walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering })),
+    projectiles: state.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color })),
+    shockwaves: state.shockwaves.map(s => ({ x: s.x, r: s.r, life: s.life, color: s.color })),
+    traps: state.traps.map(t => ({ x: t.x, arm: t.arm, color: t.color })),
+    floatTexts: state.floatTexts.map(t => ({ x: t.x, y: t.y, text: t.text, color: t.color, life: t.life, maxLife: t.maxLife })),
+  };
+}
+function applySnapshot(s) {
+  if (!s) return;
+  state.countdown = s.countdown; state.roundTime = s.roundTime; state.banner = s.banner;
+  state.online_over = (s.phase === 'over');
+  if (state.fighters.length === s.fighters.length) {
+    s.fighters.forEach((sf, i) => Object.assign(state.fighters[i], sf));
+  } else {
+    state.fighters = s.fighters.map(sf => { const f = makeFighter({ charId: sf.charId, team: sf.team, x: sf.x, facing: sf.facing }); Object.assign(f, sf); return f; });
+  }
+  state.projectiles = s.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color, vx: 0 }));
+  state.shockwaves = s.shockwaves.map(w => ({ x: w.x, y: GROUND_Y, r: w.r, maxR: w.r, life: w.life, color: w.color }));
+  state.traps = s.traps.map(t => ({ x: t.x, y: GROUND_Y, arm: t.arm, color: t.color, life: 1 }));
+  state.floatTexts = s.floatTexts.map(t => ({ x: t.x, y: t.y, text: t.text, color: t.color, life: t.life, maxLife: t.maxLife }));
+  state.mode = 'fight';
+  if (s.phase === 'over' && net.phase === 'fight') { net.phase = 'rematch'; net.localReady = false; net.remoteReady = false; renderOnlineUI(); }
+  if (s.phase !== 'over' && net.phase === 'rematch') { net.phase = 'fight'; renderOnlineUI(); }
+}
+function renderOnlineUI() {
+  const el = document.getElementById('onlineScreen');
+  if (!net || net.phase === 'fight' || net.phase === 'count') { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const leaveBtn = '<button class="btn" onclick="onlineLeave()">Leave</button>';
+  const backBtn = '<button class="btn" onclick="showTitle()">Back</button>';
+  let h = '';
+  if (net.phase === 'menu') {
+    h = '<h2>ONLINE 2-PLAYER</h2>' +
+        '<button class="btn" onclick="onlineCreate()">Create Game</button>' +
+        '<p>&mdash; or join a friend &mdash;</p>' +
+        '<div class="row"><input id="joinCode" maxlength="4" placeholder="CODE" style="font-family:inherit;font-size:22px;text-transform:uppercase;width:130px;text-align:center;padding:8px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;">' +
+        '<button class="btn" onclick="onlineJoin()">Join</button></div>' +
+        (net.error ? '<p style="color:#f88">' + net.error + '</p>' : '') + backBtn;
+  } else if (net.phase === 'connecting') {
+    h = '<h2>Connecting&hellip;</h2>' + leaveBtn;
+  } else if (net.phase === 'waiting') {
+    h = '<h2>Your code is</h2><h1 style="letter-spacing:10px;font-size:64px">' + net.code + '</h1>' +
+        '<p>Tell your friend this code, then wait for them to join&hellip;</p>' + leaveBtn;
+  } else if (net.phase === 'lobby' || net.phase === 'rematch') {
+    const cnt = (net.localReady ? 1 : 0) + (net.remoteReady ? 1 : 0);
+    const top = net.phase === 'rematch'
+      ? ('<h1>' + (state.banner || '') + '</h1><h2>Play again?</h2>')
+      : '<h2>Connected &mdash; 2/2 players!</h2>';
+    const btn = net.localReady
+      ? '<p>Waiting for your friend&hellip; (' + cnt + '/2 ready)</p>'
+      : '<button class="btn" onclick="onlineReady()">' + (net.phase === 'rematch' ? 'Play Again' : 'Ready') + '</button><p>' + cnt + '/2 ready</p>';
+    h = top + btn + leaveBtn;
+  } else if (net.phase === 'error') {
+    h = '<h2>Connection problem</h2><p style="color:#f88">' + (net.error || '') + '</p>' +
+        '<button class="btn" onclick="onlineOpen()">Try Again</button><button class="btn" onclick="showTitle()">Main Menu</button>';
+  }
+  el.innerHTML = h;
+}
+
 buildCharRow();
 requestAnimationFrame(gameLoop);
 

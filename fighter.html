@@ -120,7 +120,7 @@ const JUMP_V = -780;       // base jump velocity (per-char multiplier applied)
 const MAX_FALL = 1400;
 const WALL_L = 40, WALL_R = W - 40;
 const ROUND_TIME = 60;     // seconds per round
-const ROUNDS_TO_WIN = 2;   // best of 3
+const ROUNDS_TO_WIN = 3;   // first to 3 round wins takes the match
 const MAX_HP = 100;
 const MAX_METER = 100;
 const HITSTOP = 0.05;      // brief global freeze on a clean hit (juice)
@@ -307,7 +307,7 @@ function freshState() {
     roundTime: ROUND_TIME, roundNum: 1, teamRounds: [0, 0],
     banner: '', roundOverTimer: 0, lastWinner: -1,
     shake: 0, hitstop: 0,
-    countdown: 0, online_over: false,
+    countdown: 0, online_over: false, online_matchWon: -1,
   };
 }
 state = freshState();
@@ -1234,7 +1234,7 @@ function genCode() {
 }
 function baseNet() {
   return { active: false, isHost: false, code: '', peer: null, conn: null, connected: false,
-    phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '' };
+    phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '', lineup: null };
 }
 function send(obj) { try { if (net && net.conn && net.conn.open) net.conn.send(obj); } catch (e) {} }
 function notify(msg) { if (typeof alert === 'function') alert(msg); }
@@ -1297,10 +1297,13 @@ function onPeerLeft() {
 }
 function maybeStart() {
   if (net.isHost && net.localReady && net.remoteReady) {
-    const lineup = makeOnlineLineup();
-    setupOnlineRound(lineup);
+    if (!net.lineup || state.online_matchWon >= 0) { // fresh match: new fighters, reset score
+      net.lineup = makeOnlineLineup();
+      state.teamRounds = [0, 0]; state.online_matchWon = -1;
+    }
+    setupOnlineRound(net.lineup);
     net.phase = 'fight';
-    send({ type: 'start', lineup });
+    send({ type: 'start', lineup: net.lineup });
     renderOnlineUI();
   }
 }
@@ -1350,7 +1353,15 @@ function updateOnlineHost(dt) {
     const r = checkRoundOver(state.fighters);
     if (r !== -1 || state.roundTime <= 0) {
       const w = (r === -1) ? timeoutWinner() : r;
-      state.banner = (w === 'draw') ? 'DRAW' : (teamName(w).toUpperCase() + ' WINS!');
+      if (w !== 'draw') state.teamRounds[w]++;
+      const sc = state.teamRounds[0] + ' - ' + state.teamRounds[1];
+      if (w !== 'draw' && state.teamRounds[w] >= ROUNDS_TO_WIN) {
+        state.online_matchWon = w;
+        state.banner = teamName(w).toUpperCase() + ' WINS THE MATCH!  (' + sc + ')';
+      } else {
+        state.online_matchWon = -1;
+        state.banner = (w === 'draw' ? 'DRAW' : teamName(w).toUpperCase() + ' WINS THE ROUND') + '  (' + sc + ')';
+      }
       state.online_over = true; net.phase = 'rematch'; net.localReady = false; net.remoteReady = false;
       renderOnlineUI();
     }
@@ -1366,6 +1377,7 @@ function serializeSnapshot() {
   return {
     phase: state.online_over ? 'over' : (state.countdown > 0 ? 'count' : 'fight'),
     countdown: state.countdown, roundTime: state.roundTime, banner: state.banner,
+    teamRounds: state.teamRounds.slice(), matchWon: state.online_matchWon,
     fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing,
       state: f.state, attackName: f.attackName, specialName: f.specialName, stateTimer: f.stateTimer,
       hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
@@ -1380,6 +1392,8 @@ function applySnapshot(s) {
   if (!s) return;
   state.countdown = s.countdown; state.roundTime = s.roundTime; state.banner = s.banner;
   state.online_over = (s.phase === 'over');
+  if (s.teamRounds) state.teamRounds = s.teamRounds;
+  if (s.matchWon !== undefined) state.online_matchWon = s.matchWon;
   if (state.fighters.length === s.fighters.length) {
     s.fighters.forEach((sf, i) => Object.assign(state.fighters[i], sf));
   } else {

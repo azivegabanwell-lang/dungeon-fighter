@@ -188,6 +188,21 @@ const CHARS = [
   { name: 'Rune', color: '#ff4fcf', style: 'Trapper. Lays a rune that detonates on contact.',
     walkSpeed: 210, jumpMul: 1.0,  maxHp: 98,  punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 50,
     special: 'trap', specialName: 'RUNE TRAP' },
+  { name: 'Bastion', color: '#4d80b0', style: 'Defender. Raises a shield of total invulnerability.',
+    walkSpeed: 175, jumpMul: 0.9,  maxHp: 115, punchDmg: 7, punchRange: 38, kickDmg: 13, kickRange: 50,
+    special: 'shield', specialName: 'AEGIS' },
+  { name: 'Gale', color: '#8fd9c8', style: 'Spacer. A gust that hurls foes far away.',
+    walkSpeed: 250, jumpMul: 1.2,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
+    special: 'repel', specialName: 'GUST' },
+  { name: 'Toxin', color: '#a4d61e', style: 'Poisoner. A venom strike that rots health over time.',
+    walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 42, kickDmg: 11, kickRange: 54,
+    special: 'venom', specialName: 'VENOM' },
+  { name: 'Chrono', color: '#b9c6ff', style: 'Controller. Warps time to slow a foe to a crawl.',
+    walkSpeed: 205, jumpMul: 1.0,  maxHp: 98,  punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
+    special: 'slow', specialName: 'TIME WARP' },
+  { name: 'Bramble', color: '#7a8b3a', style: 'Bruiser. Thorns reflect damage back to attackers.',
+    walkSpeed: 170, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
+    special: 'thorns', specialName: 'BRAMBLE' },
 ];
 
 // Normal attacks. Per-char damage/range overrides come from CHARS.
@@ -212,6 +227,11 @@ const SPECIALS = {
   grab:        { dur: 0.45, startup: 0.10 },
   teleport:    { dur: 0.45, startup: 0.12 },
   trap:        { dur: 0.35 },
+  shield:      { dur: 0.30 },
+  repel:       { dur: 0.35 },
+  venom:       { dur: 0.45, startup: 0.10 },
+  slow:        { dur: 0.35, startup: 0.10 },
+  thorns:      { dur: 0.30 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
 const ZONER_SPECIALS = new Set(['beam']);
@@ -330,7 +350,7 @@ function makeFighter(spec) {
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
-    buffTimer: 0, frozen: 0,
+    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -400,6 +420,11 @@ function specialHitbox(f) {
     return box(ch.kickRange * 0.4, 34, 52, 40, 16,
       { hitstun: 0.4, knockbackVx: 200, knockbackVy: -160, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 120, sfx: 'special', lifesteal: 0.7 });
   }
+  if (name === 'venom') {
+    if (t < SPECIALS.venom.startup || t > SPECIALS.venom.startup + 0.12) return null;
+    return box(ch.kickRange * 0.4, 34, 52, 40, 8,
+      { hitstun: 0.3, knockbackVx: 120, knockbackVy: -100, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 100, sfx: 'special', poison: 4.0 });
+  }
   if (name === 'grab') {
     if (t < SPECIALS.grab.startup || t > SPECIALS.grab.startup + 0.12) return null;
     const b = box(8, 30, 50, 60, 24,
@@ -447,6 +472,14 @@ function applyHit(a, t, box) {
     a.hp = Math.min(a.maxHp, a.hp + heal);
     spawnParticles(a.x, a.y - 50, '#6fff9f', 8, 2);
     floatText(a.x, a.y - 96, '+' + Math.round(heal), '#6fff9f');
+  }
+  if (box.move.poison) { t.poisonTimer = box.move.poison; t.poisonTick = 0.5; } // Toxin's Venom
+  if (t.thornsTimer > 0 && a.team !== t.team && a.state !== 'ko') { // Bramble's thorns reflect
+    const refl = box.dmg * 0.5;
+    a.hp = Math.max(0, a.hp - refl);
+    spawnParticles(a.x, a.y - 50, '#9ab048', 6, 2);
+    floatText(a.x, a.y - 96, Math.round(refl), '#9ab048');
+    if (a.hp <= 0) startKO(a);
   }
   if (t.hp <= 0) startKO(t);
 }
@@ -508,7 +541,33 @@ function startSpecial(f) {
   else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
   else if (ch.special === 'teleport') { f.invuln = 0.4; f.vx = 0; } // i-frames through the blink
   else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
+  else if (ch.special === 'shield') { f.vx = 0; f.shieldTimer = 1.2; f.invuln = 1.2; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
+  else if (ch.special === 'repel') { f.vx = 0; doRepel(f); }
+  else if (ch.special === 'venom') { f.vx = f.facing * 200; }      // small step into the venom strike
+  else if (ch.special === 'slow') { f.vx = 0; doSlow(f); }
+  else if (ch.special === 'thorns') { f.vx = 0; f.thornsTimer = 5.0; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
   else { f.vx = 0; } // beam, pull, counter, heal: stand still
+}
+// Gale's Gust: shove every nearby opponent far away.
+function doRepel(f) {
+  for (const o of state.fighters) {
+    if (o.team === f.team || o.state === 'ko' || o.invuln > 0) continue;
+    if (Math.abs(o.x - f.x) < 250) {
+      const away = o.x < f.x ? -1 : 1;
+      o.vx = away * 540; o.vy = -260; o.onGround = false;
+      o.state = 'hitstun'; o.stateTimer = 0; o.hitstunDur = 0.3; o.attackName = null; o.specialName = null;
+      spawnParticles(o.x, o.y - 40, f.color, 8, 2);
+    }
+  }
+  state.shake = Math.max(state.shake, 6);
+}
+// Chrono's Time Warp: slow the nearest opponent in range to half speed.
+function doSlow(f) {
+  const opp = nearestOpponent(f);
+  if (opp && Math.abs(opp.x - f.x) < 320 && opp.invuln <= 0 && opp.state !== 'ko') {
+    opp.slowTimer = 4.0;
+    spawnParticles(opp.x, opp.y - 40, f.color, 12, 1.5);
+  }
 }
 // Vex's Stasis: freeze the nearest opponent in range solid for a moment.
 function doFreeze(f) {
@@ -696,18 +755,30 @@ function applyIntent(f, intent) {
   // Movement (not while blocking on the ground)
   if (!(intent.block && f.onGround)) {
     const dir = (intent.right ? 1 : 0) - (intent.left ? 1 : 0);
-    if (dir !== 0) { f.vx = dir * ch.walkSpeed * (f.buffTimer > 0 ? 1.4 : 1); if (f.onGround) f.state = 'walk'; }
+    if (dir !== 0) { f.vx = dir * ch.walkSpeed * (f.buffTimer > 0 ? 1.4 : 1) * (f.slowTimer > 0 ? 0.5 : 1); if (f.onGround) f.state = 'walk'; }
     else if (f.onGround) { f.state = 'idle'; }
     if (intent.jump && f.onGround) { f.vy = JUMP_V * ch.jumpMul; f.onGround = false; f.state = 'jump'; sfx('jump'); }
   }
   if (!f.onGround && f.attackName == null) f.state = 'jump';
 }
 function updateFighter(f, dt) {
-  f.stateTimer += dt;
+  if (f.slowTimer > 0) f.slowTimer -= dt;
+  const sdt = f.slowTimer > 0 ? dt * 0.5 : dt; // Time Warp: act at half speed
+  f.stateTimer += sdt;
   f.invuln = Math.max(0, f.invuln - dt);
   f.hitFlash = Math.max(0, f.hitFlash - dt);
   f.bobPhase += dt * 4;
   if (f.buffTimer > 0) { f.buffTimer -= dt; if (Math.random() < 0.3) spawnParticles(f.x, f.y - 40, f.color, 1, 1.5); }
+  if (f.shieldTimer > 0) f.shieldTimer -= dt;
+  if (f.thornsTimer > 0) f.thornsTimer -= dt;
+  if (f.poisonTimer > 0) {
+    f.poisonTimer -= dt; f.poisonTick -= dt;
+    if (f.poisonTick <= 0) {
+      f.poisonTick = 0.5; f.hp = Math.max(0, f.hp - 2);
+      spawnParticles(f.x, f.y - 40, '#a4d61e', 3, 1); floatText(f.x, f.y - 90, '2', '#a4d61e');
+      if (f.hp <= 0 && f.state !== 'ko') startKO(f);
+    }
+  }
   if (f.frozen > 0) f.frozen -= dt;
 
   if (f.frozen > 0) {
@@ -984,6 +1055,19 @@ function drawFighter(f) {
     ctx.fillRect(f.x - 19, headTop - 4, 38, (y + 2) - (headTop - 4));
     ctx.globalAlpha = 0.9; ctx.strokeStyle = '#e6fbff'; ctx.lineWidth = 2;
     ctx.strokeRect(f.x - 19, headTop - 4, 38, (y + 2) - (headTop - 4));
+    ctx.restore();
+  }
+  // ---- poison tint (Toxin's Venom) ----
+  if (f.poisonTimer > 0) {
+    ctx.save(); ctx.globalAlpha = 0.18 + Math.sin(Date.now() / 150) * 0.08;
+    ctx.fillStyle = '#a4d61e'; ctx.fillRect(f.x - 16, headTop, 32, (y) - headTop); ctx.restore();
+  }
+  // ---- shield bubble (Bastion's Aegis) ----
+  if (f.shieldTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.18 + Math.sin(Date.now() / 100) * 0.08; ctx.fillStyle = '#bfe9ff';
+    ctx.beginPath(); ctx.arc(f.x, f.y - 40, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.7; ctx.strokeStyle = '#dff3ff'; ctx.lineWidth = 3; ctx.stroke();
     ctx.restore();
   }
 }
@@ -1434,7 +1518,8 @@ function serializeSnapshot() {
     fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing,
       state: f.state, attackName: f.attackName, specialName: f.specialName, stateTimer: f.stateTimer,
       hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
-      walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering, buffTimer: f.buffTimer, frozen: f.frozen })),
+      walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering, buffTimer: f.buffTimer, frozen: f.frozen,
+      poisonTimer: f.poisonTimer, slowTimer: f.slowTimer, shieldTimer: f.shieldTimer, thornsTimer: f.thornsTimer })),
     projectiles: state.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color })),
     shockwaves: state.shockwaves.map(s => ({ x: s.x, r: s.r, life: s.life, color: s.color })),
     traps: state.traps.map(t => ({ x: t.x, arm: t.arm, color: t.color })),

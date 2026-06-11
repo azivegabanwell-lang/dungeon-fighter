@@ -90,9 +90,6 @@
   <!-- ONLINE 2P LOBBY (content filled in by renderOnlineUI) -->
   <div class="overlay hidden" id="onlineScreen"></div>
 
-  <!-- BETWEEN ROUNDS (offline) -->
-  <div class="overlay hidden" id="roundScreen"></div>
-
   <!-- MATCH OVER -->
   <div class="overlay hidden" id="matchScreen">
     <h1 id="matchText">YOU WIN!</h1>
@@ -888,31 +885,14 @@ function timeoutWinner() {
   if (h0 > h1) return 0; if (h1 > h0) return 1; return 'draw';
 }
 function endRound(r) {
-  state.lastWinner = r;
-  if (r === 'draw') { state.banner = 'DRAW'; }
-  else { state.teamRounds[r]++; state.banner = teamName(r).toUpperCase() + ' WINS ROUND ' + state.roundNum; }
-  // Match decided? go straight to the match-over screen.
-  if (r !== 'draw' && state.teamRounds[r] >= ROUNDS_TO_WIN) { matchOver(r); return; }
-  state.mode = 'roundOver';
-  showRoundScreen();
-}
-function showRoundScreen() {
-  const el = document.getElementById('roundScreen');
-  el.innerHTML = '<h1>' + state.banner + '</h1>' +
-    '<p>' + teamName(0).toUpperCase() + '  ' + state.teamRounds[0] + ' — ' + state.teamRounds[1] + '  ' + teamName(1).toUpperCase() + '</p>' +
-    '<div class="row"><button class="btn" onclick="continueRound()">Next Round</button>' +
-    '<button class="btn" onclick="changeFighter()">Change Fighter</button></div>';
-  el.classList.remove('hidden');
-}
-function continueRound() {
-  document.getElementById('roundScreen').classList.add('hidden');
-  nextRound();
-}
-function changeFighter() {
-  document.getElementById('roundScreen').classList.add('hidden');
-  showSelect(state.is2v2); // pick a new fighter (starts a fresh match)
+  state.mode = 'roundOver'; state.roundOverTimer = 2.6; state.lastWinner = r;
+  if (r === 'draw') state.banner = 'DRAW';
+  else state.banner = teamName(r).toUpperCase() + ' WINS ROUND ' + state.roundNum;
+  if (r !== 'draw') state.teamRounds[r]++;
 }
 function nextRound() {
+  const r = state.lastWinner;
+  if (r !== 'draw' && state.teamRounds[r] >= ROUNDS_TO_WIN) { matchOver(r); return; }
   state.roundNum++;
   setupRound();
   state.mode = 'fight';
@@ -1306,7 +1286,11 @@ function update(dt) {
   updateParticles(dt); updateFloatTexts(dt);
   mouseClicked = false;
 
-  if (state.mode === 'roundOver') { clearJustPressed(); mouseClicked = false; return; } // wait for a button
+  if (state.mode === 'roundOver') {
+    state.roundOverTimer -= dt;
+    if (state.roundOverTimer <= 0) nextRound();
+    clearJustPressed(); return;
+  }
   if (state.mode !== 'fight') { clearJustPressed(); return; }
   if (state.hitstop > 0) { state.hitstop -= dt; clearJustPressed(); return; }
 
@@ -1340,7 +1324,6 @@ function hideOverlays() {
   document.getElementById('matchScreen').classList.add('hidden');
   document.getElementById('pauseScreen').classList.add('hidden');
   document.getElementById('onlineScreen').classList.add('hidden');
-  document.getElementById('roundScreen').classList.add('hidden');
 }
 function pauseGame() {
   state.mode = 'paused';

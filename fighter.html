@@ -1371,7 +1371,8 @@ function genCode() {
 }
 function baseNet() {
   return { active: false, isHost: false, code: '', peer: null, conn: null, connected: false,
-    phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '', lineup: null };
+    phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '', lineup: null,
+    localChar: null, remoteChar: null };
 }
 function send(obj) { try { if (net && net.conn && net.conn.open) net.conn.send(obj); } catch (e) {} }
 function notify(msg) { if (typeof alert === 'function') alert(msg); }
@@ -1423,6 +1424,7 @@ function setupConn(c) {
 function onData(msg) {
   if (!msg || !net) return;
   if (msg.type === 'ready') { net.remoteReady = true; maybeStart(); renderOnlineUI(); }
+  else if (msg.type === 'char') { net.remoteChar = msg.id; renderOnlineUI(); }
   else if (msg.type === 'start') { setupOnlineRound(msg.lineup); net.phase = 'fight'; renderOnlineUI(); }
   else if (msg.type === 'input') { net.remoteInput = msg.i || NO_INTENT; }
   else if (msg.type === 'snap') { if (!net.isHost) applySnapshot(msg.s); }
@@ -1434,10 +1436,8 @@ function onPeerLeft() {
 }
 function maybeStart() {
   if (net.isHost && net.localReady && net.remoteReady) {
-    if (!net.lineup || state.online_matchWon >= 0) { // fresh match: new fighters, reset score
-      net.lineup = makeOnlineLineup();
-      state.teamRounds = [0, 0]; state.online_matchWon = -1;
-    }
+    if (state.online_matchWon >= 0) { state.teamRounds = [0, 0]; state.online_matchWon = -1; }
+    net.lineup = makeOnlineLineup(); // built from each player's chosen fighter
     setupOnlineRound(net.lineup);
     net.phase = 'fight';
     send({ type: 'start', lineup: net.lineup });
@@ -1446,7 +1446,12 @@ function maybeStart() {
 }
 function onlineReady() {
   if (!net || net.localReady) return;
+  if (net.phase === 'lobby' && net.localChar == null) return; // must pick a fighter first
   net.localReady = true; send({ type: 'ready' }); maybeStart(); renderOnlineUI();
+}
+function onlinePickChar(i) {
+  if (!net || net.localReady) return;     // locked once you're ready
+  net.localChar = i; send({ type: 'char', id: i }); renderOnlineUI();
 }
 function onlineLeave() { send({ type: 'leave' }); teardownNet(); showTitle(); }
 function teardownNet() {
@@ -1457,8 +1462,8 @@ function teardownNet() {
   net = null;
 }
 function makeOnlineLineup() {
-  const a = Math.floor(Math.random() * CHARS.length);
-  let b; do { b = Math.floor(Math.random() * CHARS.length); } while (b === a);
+  const a = (net.localChar != null) ? net.localChar : 0;   // host's pick (team 0)
+  const b = (net.remoteChar != null) ? net.remoteChar : 0; // guest's pick (team 1)
   return [ { charId: a, team: 0, controller: 'local',  x: 300, facing: 1 },
            { charId: b, team: 1, controller: 'remote', x: 600, facing: -1 } ];
 }
@@ -1564,15 +1569,27 @@ function renderOnlineUI() {
   } else if (net.phase === 'waiting') {
     h = '<h2>Your code is</h2><h1 style="letter-spacing:10px;font-size:64px">' + net.code + '</h1>' +
         '<p>Tell your friend this code, then wait for them to join&hellip;</p>' + leaveBtn;
-  } else if (net.phase === 'lobby' || net.phase === 'rematch') {
+  } else if (net.phase === 'lobby') {
     const cnt = (net.localReady ? 1 : 0) + (net.remoteReady ? 1 : 0);
-    const top = net.phase === 'rematch'
-      ? ('<h1>' + (state.banner || '') + '</h1><h2>Play again?</h2>')
-      : '<h2>Connected &mdash; 2/2 players!</h2>';
+    const opp = net.remoteChar != null ? CHARS[net.remoteChar].name : '…';
+    let grid = '<div class="row" style="max-width:780px;gap:5px;">';
+    for (let i = 0; i < CHARS.length; i++) {
+      const c = CHARS[i], sel = (i === net.localChar);
+      grid += '<button class="btn" style="font-size:12px;padding:6px 9px;' +
+        (sel ? 'background:' + c.color + ';color:#111;border-color:#fff;' : 'border-color:' + c.color + ';') +
+        '" onclick="onlinePickChar(' + i + ')">' + c.name + '</button>';
+    }
+    grid += '</div>';
+    const ready = (net.localChar == null) ? '<p>Pick your fighter above.</p>'
+      : (net.localReady ? '<p>Ready! Waiting for your friend&hellip; (' + cnt + '/2)</p>'
+        : '<button class="btn" onclick="onlineReady()">Ready</button><p>' + cnt + '/2 ready</p>');
+    h = '<h2>Choose your fighter</h2>' + grid + '<p>Opponent picked: <b>' + opp + '</b></p>' + ready + leaveBtn;
+  } else if (net.phase === 'rematch') {
+    const cnt = (net.localReady ? 1 : 0) + (net.remoteReady ? 1 : 0);
     const btn = net.localReady
       ? '<p>Waiting for your friend&hellip; (' + cnt + '/2 ready)</p>'
-      : '<button class="btn" onclick="onlineReady()">' + (net.phase === 'rematch' ? 'Play Again' : 'Ready') + '</button><p>' + cnt + '/2 ready</p>';
-    h = top + btn + leaveBtn;
+      : '<button class="btn" onclick="onlineReady()">Play Again</button><p>' + cnt + '/2 ready</p>';
+    h = '<h1>' + (state.banner || '') + '</h1><h2>Play again?</h2>' + btn + leaveBtn;
   } else if (net.phase === 'error') {
     h = '<h2>Connection problem</h2><p style="color:#f88">' + (net.error || '') + '</p>' +
         '<button class="btn" onclick="onlineOpen()">Try Again</button><button class="btn" onclick="showTitle()">Main Menu</button>';

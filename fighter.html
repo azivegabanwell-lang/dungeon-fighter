@@ -158,21 +158,21 @@ function inPauseBtn() {
 // CHARACTER DATA — 5 fighters, each a distinct style + unique special
 // =====================================================================
 const CHARS = [
-  { name: 'Blaze', color: '#ff5533', style: 'Zoner. Keeps distance and throws fireballs.',
+  { name: 'Blaze', color: '#ff5533', style: 'Zoner. Sears an instant flame beam across the lane.',
     walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 52,
-    special: 'fireball', specialName: 'FIREBALL' },
-  { name: 'Nyx', color: '#a06bff', style: 'Rushdown. Fast, low damage, gets in your face.',
+    special: 'beam', specialName: 'FLAME BEAM' },
+  { name: 'Nyx', color: '#a06bff', style: 'Rushdown. Vampiric strike that heals on hit.',
     walkSpeed: 270, jumpMul: 1.05, maxHp: 90,  punchDmg: 5, punchRange: 34, kickDmg: 9,  kickRange: 46,
-    special: 'flurry', specialName: 'FLURRY' },
-  { name: 'Titan', color: '#3fa9f5', style: 'Heavyweight. Slow but huge damage and HP.',
+    special: 'lifesteal', specialName: 'DRAIN FANG' },
+  { name: 'Titan', color: '#3fa9f5', style: 'Heavyweight. Enrages for big damage & speed.',
     walkSpeed: 150, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 15, kickRange: 50,
-    special: 'groundpound', specialName: 'GROUND POUND' },
-  { name: 'Vex', color: '#2ecc71', style: 'Reversal. Invincible rising uppercut.',
+    special: 'berserk', specialName: 'BERSERK' },
+  { name: 'Vex', color: '#2ecc71', style: 'Trickster. Freezes a foe solid to combo them.',
     walkSpeed: 220, jumpMul: 1.15, maxHp: 100, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'uppercut', specialName: 'UPPERCUT' },
-  { name: 'Echo', color: '#f1c40f', style: 'Lancer. Long reach and a screen-crossing lunge.',
+    special: 'freeze', specialName: 'STASIS' },
+  { name: 'Echo', color: '#f1c40f', style: 'Lancer. A vortex that drags foes into reach.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
-    special: 'lunge', specialName: 'SPEAR LUNGE' },
+    special: 'pull', specialName: 'VORTEX' },
   { name: 'Mirror', color: '#c9d2e0', style: 'Counter. Parries the next hit, then punishes hard.',
     walkSpeed: 205, jumpMul: 1.0,  maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
     special: 'counter', specialName: 'RIPOSTE' },
@@ -202,11 +202,11 @@ const MOVES = {
 
 // Special timings (durations in seconds)
 const SPECIALS = {
-  fireball:    { dur: 0.45, startup: 0.18 },
-  flurry:      { dur: 0.60 },
-  groundpound: { dur: 0.55, startup: 0.25 },
-  uppercut:    { dur: 0.80 },
-  lunge:       { dur: 0.50, dash: 0.30 },
+  beam:        { dur: 0.50, startup: 0.20 },
+  lifesteal:   { dur: 0.45, startup: 0.10 },
+  berserk:     { dur: 0.40 },
+  freeze:      { dur: 0.40, startup: 0.12 },
+  pull:        { dur: 0.50 },
   counter:     { dur: 0.55 },
   heal:        { dur: 0.80 },
   grab:        { dur: 0.45, startup: 0.10 },
@@ -214,7 +214,7 @@ const SPECIALS = {
   trap:        { dur: 0.35 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
-const ZONER_SPECIALS = new Set(['fireball']);
+const ZONER_SPECIALS = new Set(['beam']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -330,6 +330,7 @@ function makeFighter(spec) {
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
+    buffTimer: 0, frozen: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -375,7 +376,7 @@ function computeHitbox(f) {
   if (f.stateTimer < m.startup || f.stateTimer > m.startup + m.active) return null;
   const ch = CHARS[f.charId];
   const range = f.attackName === 'punch' ? ch.punchRange : ch.kickRange;
-  const dmg = f.attackName === 'punch' ? ch.punchDmg : ch.kickDmg;
+  const dmg = (f.attackName === 'punch' ? ch.punchDmg : ch.kickDmg) * (f.buffTimer > 0 ? 1.6 : 1);
   const front = f.x + f.facing * (f.w / 2);
   const w = m.boxW + range;
   const bx = f.facing > 0 ? front : front - w;
@@ -389,20 +390,15 @@ function specialHitbox(f) {
     const bx = fc > 0 ? front : front - fullW;
     return { x: bx, y: f.y - yOff - h / 2, w: fullW, h, dmg, move: mv };
   }
-  if (name === 'flurry') {
-    if (t < 0.1 || t > 0.55) return null;
-    return box(ch.kickRange * 0.4, 30, 55, 30, 4,
-      { hitstun: 0.14, knockbackVx: 70, knockbackVy: -30, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 50, sfx: 'hit' });
+  if (name === 'beam') {
+    if (t < SPECIALS.beam.startup || t > SPECIALS.beam.startup + 0.16) return null;
+    return box(360, 30, 56, 30, 20,  // long instant lane
+      { hitstun: 0.4, knockbackVx: 300, knockbackVy: -160, chipMul: 0.4, meterOnHit: 4, meterOnBlock: 5, pushOnBlock: 150, sfx: 'special' });
   }
-  if (name === 'uppercut') {
-    if (t > 0.35) return null;
-    return box(10, 30, 40, 84, 18,
-      { hitstun: 0.5, knockbackVx: 150, knockbackVy: -520, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 120, sfx: 'special' });
-  }
-  if (name === 'lunge') {
-    if (t > SPECIALS.lunge.dash) return null;
-    return box(ch.kickRange + 40, 40, 55, 42, 20,
-      { hitstun: 0.45, knockbackVx: 380, knockbackVy: -150, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 5, pushOnBlock: 200, sfx: 'special' });
+  if (name === 'lifesteal') {
+    if (t < SPECIALS.lifesteal.startup || t > SPECIALS.lifesteal.startup + 0.12) return null;
+    return box(ch.kickRange * 0.4, 34, 52, 40, 16,
+      { hitstun: 0.4, knockbackVx: 200, knockbackVy: -160, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 120, sfx: 'special', lifesteal: 0.7 });
   }
   if (name === 'grab') {
     if (t < SPECIALS.grab.startup || t > SPECIALS.grab.startup + 0.12) return null;
@@ -416,7 +412,7 @@ function specialHitbox(f) {
     return box(10, 30, 52, 46, 17,
       { hitstun: 0.45, knockbackVx: 300, knockbackVy: -200, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 150, sfx: 'special' });
   }
-  return null; // counter (reactive), heal (no hit), trap (shockwave), fireball/groundpound (projectile/shockwave)
+  return null; // berserk (buff), freeze (on activation), pull (vortex), counter, heal, trap — no direct hitbox
 }
 
 function isBlocking(t, a) {
@@ -446,6 +442,12 @@ function applyHit(a, t, box) {
   floatText(t.x, t.y - 92, Math.round(box.dmg), '#fff');
   state.shake = Math.max(state.shake, 6);
   t.hitFlash = 0.12;
+  if (box.move.lifesteal) { // Nyx's Drain Fang heals the attacker
+    const heal = box.dmg * box.move.lifesteal;
+    a.hp = Math.min(a.maxHp, a.hp + heal);
+    spawnParticles(a.x, a.y - 50, '#6fff9f', 8, 2);
+    floatText(a.x, a.y - 96, '+' + Math.round(heal), '#6fff9f');
+  }
   if (t.hp <= 0) startKO(t);
 }
 function applyChip(t, chip) {
@@ -500,12 +502,24 @@ function startSpecial(f) {
   f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
-  if (ch.special === 'uppercut') { f.invuln = 0.35; f.vx = f.facing * 260; f.vy = -700; f.onGround = false; }
-  else if (ch.special === 'lunge') { f.vx = f.facing * 620; }
+  if (ch.special === 'lifesteal') { f.vx = f.facing * 240; }       // small lunge into the bite
+  else if (ch.special === 'berserk') { f.vx = 0; f.buffTimer = 6.0; spawnParticles(f.x, f.y - 40, ch.color, 20, 3); }
+  else if (ch.special === 'freeze') { f.vx = 0; doFreeze(f); }
   else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
   else if (ch.special === 'teleport') { f.invuln = 0.4; f.vx = 0; } // i-frames through the blink
   else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
-  else { f.vx = 0; } // groundpound, flurry, counter, heal: stand still
+  else { f.vx = 0; } // beam, pull, counter, heal: stand still
+}
+// Vex's Stasis: freeze the nearest opponent in range solid for a moment.
+function doFreeze(f) {
+  const opp = nearestOpponent(f);
+  if (opp && Math.abs(opp.x - f.x) < 280 && opp.invuln <= 0 && opp.state !== 'ko') {
+    opp.frozen = 1.1; opp.vx = 0;
+    opp.state = 'idle'; opp.attackName = null; opp.specialName = null;
+    opp.hasHit = false; opp.facingLocked = false;
+    spawnParticles(opp.x, opp.y - 40, '#9fe8ff', 18, 2);
+    state.shake = Math.max(state.shake, 4);
+  }
 }
 function spawnFireball(f) {
   state.projectiles.push({
@@ -562,19 +576,22 @@ function endAttack(f) {
 }
 function updateSpecial(f, dt) {
   const name = f.specialName, t = f.stateTimer, sp = SPECIALS[name];
-  if (name === 'fireball') {
-    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnFireball(f); }
+  if (name === 'beam') {
+    if (t >= sp.dur) endAttack(f);                          // hitbox via specialHitbox during active window
+  } else if (name === 'lifesteal') {
+    if (t < 0.12) f.vx = f.facing * 240;
     if (t >= sp.dur) endAttack(f);
-  } else if (name === 'flurry') {
-    if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; } // allow ~1 hit per 0.1s
-    if (t >= sp.dur) endAttack(f);
-  } else if (name === 'groundpound') {
-    if (!f.shockDone && t >= sp.startup) { f.shockDone = true; spawnShock(f); state.shake = Math.max(state.shake, 10); }
-    if (t >= sp.dur) endAttack(f);
-  } else if (name === 'uppercut') {
-    if ((t > 0.25 && f.onGround) || t >= sp.dur) endAttack(f);
-  } else if (name === 'lunge') {
-    if (t < sp.dash) f.vx = f.facing * 620;
+  } else if (name === 'berserk') {
+    if (t >= sp.dur) endAttack(f);                          // buff applied on activation; just play the flex
+  } else if (name === 'freeze') {
+    if (t >= sp.dur) endAttack(f);                          // target frozen on activation
+  } else if (name === 'pull') {
+    for (const o of state.fighters) {                       // vortex drags opponents toward Echo
+      if (o.team === f.team || o.state === 'ko' || o.invuln > 0 || o.frozen > 0) continue;
+      const dx = f.x - o.x, d = Math.abs(dx) || 1;
+      if (d < 420) o.vx += (dx / d) * 900 * dt;
+    }
+    if (Math.random() < 0.6) spawnParticles(f.x + (Math.random() * 60 - 30), f.y - 30, f.color, 1, 0.5);
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'counter') {
     f.countering = (t >= 0.06 && t <= 0.5);               // parry window
@@ -679,7 +696,7 @@ function applyIntent(f, intent) {
   // Movement (not while blocking on the ground)
   if (!(intent.block && f.onGround)) {
     const dir = (intent.right ? 1 : 0) - (intent.left ? 1 : 0);
-    if (dir !== 0) { f.vx = dir * ch.walkSpeed; if (f.onGround) f.state = 'walk'; }
+    if (dir !== 0) { f.vx = dir * ch.walkSpeed * (f.buffTimer > 0 ? 1.4 : 1); if (f.onGround) f.state = 'walk'; }
     else if (f.onGround) { f.state = 'idle'; }
     if (intent.jump && f.onGround) { f.vy = JUMP_V * ch.jumpMul; f.onGround = false; f.state = 'jump'; sfx('jump'); }
   }
@@ -690,8 +707,12 @@ function updateFighter(f, dt) {
   f.invuln = Math.max(0, f.invuln - dt);
   f.hitFlash = Math.max(0, f.hitFlash - dt);
   f.bobPhase += dt * 4;
+  if (f.buffTimer > 0) { f.buffTimer -= dt; if (Math.random() < 0.3) spawnParticles(f.x, f.y - 40, f.color, 1, 1.5); }
+  if (f.frozen > 0) f.frozen -= dt;
 
-  if (f.state === 'ko') {
+  if (f.frozen > 0) {
+    f.vx = 0; // frozen solid — can't act (still takes hits)
+  } else if (f.state === 'ko') {
     // no control; physics still runs below
   } else if (f.state === 'hitstun') {
     if (f.stateTimer >= f.hitstunDur && f.onGround) { f.state = 'idle'; }
@@ -876,6 +897,13 @@ function drawFighter(f) {
 
   if (f.state === 'ko') { drawKO(f, col, skin); return; }
 
+  // Berserk aura (Titan)
+  if (f.buffTimer > 0) {
+    ctx.save(); ctx.globalAlpha = 0.25 + Math.sin(Date.now() / 80) * 0.12;
+    ctx.strokeStyle = col; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y - 40, 26, 46, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  }
+
   const crouch = (f.state === 'block') ? 12 : 0;
   const y = f.y;
   const bob = (f.state === 'idle') ? Math.sin(f.bobPhase) * 1.2 : 0;
@@ -949,12 +977,37 @@ function drawFighter(f) {
     rpath(cx - 9, headTop, 18, 18, 5); ctx.fill();
     ctx.globalAlpha = 1;
   }
+  // ---- frozen (Vex's Stasis) ----
+  if (f.frozen > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.5; ctx.fillStyle = '#aef0ff';
+    ctx.fillRect(f.x - 19, headTop - 4, 38, (y + 2) - (headTop - 4));
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = '#e6fbff'; ctx.lineWidth = 2;
+    ctx.strokeRect(f.x - 19, headTop - 4, 38, (y + 2) - (headTop - 4));
+    ctx.restore();
+  }
 }
 function drawMarker(f) {
   const x = f.x, y = f.y - (f.state === 'ko' ? 0 : 96);
   if (f.state === 'ko') return;
   ctx.fillStyle = '#ffe04a';
   ctx.beginPath(); ctx.moveTo(x, y + 8); ctx.lineTo(x - 7, y); ctx.lineTo(x + 7, y); ctx.closePath(); ctx.fill();
+}
+function drawBeams() {
+  for (const f of state.fighters) {
+    if (f.attackName !== 'special' || f.specialName !== 'beam') continue;
+    const t = f.stateTimer;
+    if (t < SPECIALS.beam.startup || t > SPECIALS.beam.startup + 0.16) continue;
+    const fc = f.facing, w = 30 + 360, front = f.x + fc * (f.w / 2);
+    const bx = fc > 0 ? front : front - w, by = f.y - 56 - 15;
+    ctx.save();
+    ctx.shadowColor = f.color; ctx.shadowBlur = 22;
+    ctx.globalAlpha = 0.55 + Math.random() * 0.3; ctx.fillStyle = f.color;
+    ctx.fillRect(bx, by, w, 30);
+    ctx.globalAlpha = 0.5; ctx.fillStyle = '#fff';
+    ctx.fillRect(bx, by + 11, w, 8);
+    ctx.restore();
+  }
 }
 function drawProjectiles() {
   for (const p of state.projectiles) {
@@ -1099,7 +1152,7 @@ function draw() {
   if (state.fighters.length) {
     for (const f of state.fighters) drawFighter(f);
     for (const f of state.fighters) if ((net && net.active) ? f.team === net.myTeam : f.isPlayer) drawMarker(f);
-    drawShockwaves(); drawProjectiles(); drawParticles(); drawFloatTexts();
+    drawBeams(); drawShockwaves(); drawProjectiles(); drawParticles(); drawFloatTexts();
   }
   ctx.restore();
   if (state.mode === 'fight' || state.mode === 'roundOver' || state.mode === 'paused') drawHUD();
@@ -1381,7 +1434,7 @@ function serializeSnapshot() {
     fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing,
       state: f.state, attackName: f.attackName, specialName: f.specialName, stateTimer: f.stateTimer,
       hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
-      walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering })),
+      walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering, buffTimer: f.buffTimer, frozen: f.frozen })),
     projectiles: state.projectiles.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color })),
     shockwaves: state.shockwaves.map(s => ({ x: s.x, r: s.r, life: s.life, color: s.color })),
     traps: state.traps.map(t => ({ x: t.x, arm: t.arm, color: t.color })),

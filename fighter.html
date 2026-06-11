@@ -752,7 +752,11 @@ function applyIntent(f, intent) {
   if (f.onGround) {
     if (intent.special && f.meter >= MAX_METER) { startSpecial(f); return; }
     if (intent.punch) { startAttack(f, 'punch'); return; }
-    if (intent.kick && f.kickCooldown <= 0) { startAttack(f, 'kick'); f.kickCooldown = 2.5; return; }
+    if (intent.kick && (!(net && net.active) || f.kickCooldown <= 0)) {
+      startAttack(f, 'kick');
+      if (net && net.active) f.kickCooldown = 2.5; // kick cooldown only applies in online mode
+      return;
+    }
   }
 
   // Movement (not while blocking on the ground)

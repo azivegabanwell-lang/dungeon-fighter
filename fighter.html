@@ -168,21 +168,21 @@ const CHARS = [
   { name: 'Echo', color: '#f1c40f', style: 'Lancer. Long reach and a screen-crossing lunge.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
     special: 'lunge', specialName: 'SPEAR LUNGE' },
-  { name: 'Frost', color: '#5ad6e0', style: 'Zoner. Fires a wall of ice shards.',
-    walkSpeed: 190, jumpMul: 0.95, maxHp: 95,  punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
-    special: 'iceshards', specialName: 'ICE SHARDS' },
-  { name: 'Volt', color: '#ff5fb0', style: 'Rushdown. Teleport-dash strike with i-frames.',
-    walkSpeed: 255, jumpMul: 1.15, maxHp: 92,  punchDmg: 6, punchRange: 34, kickDmg: 10, kickRange: 46,
-    special: 'thunderdash', specialName: 'THUNDER DASH' },
-  { name: 'Boulder', color: '#c08a4a', style: 'Heavyweight. Hurls a giant slow boulder.',
-    walkSpeed: 145, jumpMul: 0.80, maxHp: 125, punchDmg: 8, punchRange: 40, kickDmg: 15, kickRange: 50,
-    special: 'boulder', specialName: 'ROCK TOSS' },
-  { name: 'Shade', color: '#8a97a8', style: 'Ninja. Throws a storm of shurikens.',
-    walkSpeed: 265, jumpMul: 1.10, maxHp: 88,  punchDmg: 5, punchRange: 34, kickDmg: 9,  kickRange: 46,
-    special: 'shuriken', specialName: 'SHURIKEN STORM' },
-  { name: 'Karma', color: '#ff9e3d', style: 'All-rounder. Spinning cyclone hits all around.',
-    walkSpeed: 215, jumpMul: 1.05, maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
-    special: 'cyclone', specialName: 'CYCLONE KICK' },
+  { name: 'Mirror', color: '#c9d2e0', style: 'Counter. Parries the next hit, then punishes hard.',
+    walkSpeed: 205, jumpMul: 1.0,  maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
+    special: 'counter', specialName: 'RIPOSTE' },
+  { name: 'Sage', color: '#23c7a7', style: 'Survivor. Meditates to heal — but is defenseless.',
+    walkSpeed: 195, jumpMul: 0.95, maxHp: 95,  punchDmg: 6, punchRange: 38, kickDmg: 10, kickRange: 48,
+    special: 'heal', specialName: 'MEDITATE' },
+  { name: 'Crush', color: '#e2792a', style: 'Grappler. Unblockable grab that ignores guard.',
+    walkSpeed: 165, jumpMul: 0.85, maxHp: 115, punchDmg: 7, punchRange: 38, kickDmg: 13, kickRange: 48,
+    special: 'grab', specialName: 'SEISMIC GRAB' },
+  { name: 'Phantom', color: '#6a5cff', style: 'Trickster. Blinks behind the foe for a backstab.',
+    walkSpeed: 235, jumpMul: 1.1,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 46,
+    special: 'teleport', specialName: 'SHADOW STEP' },
+  { name: 'Rune', color: '#ff4fcf', style: 'Trapper. Lays a rune that detonates on contact.',
+    walkSpeed: 210, jumpMul: 1.0,  maxHp: 98,  punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 50,
+    special: 'trap', specialName: 'RUNE TRAP' },
 ];
 
 // Normal attacks. Per-char damage/range overrides come from CHARS.
@@ -202,14 +202,14 @@ const SPECIALS = {
   groundpound: { dur: 0.55, startup: 0.25 },
   uppercut:    { dur: 0.80 },
   lunge:       { dur: 0.50, dash: 0.30 },
-  iceshards:   { dur: 0.50, startup: 0.16 },
-  thunderdash: { dur: 0.45, dash: 0.22 },
-  boulder:     { dur: 0.60, startup: 0.28 },
-  shuriken:    { dur: 0.70 },
-  cyclone:     { dur: 0.70 },
+  counter:     { dur: 0.55 },
+  heal:        { dur: 0.80 },
+  grab:        { dur: 0.45, startup: 0.10 },
+  teleport:    { dur: 0.45, startup: 0.12 },
+  trap:        { dur: 0.35 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
-const ZONER_SPECIALS = new Set(['fireball', 'iceshards', 'boulder', 'shuriken']);
+const ZONER_SPECIALS = new Set(['fireball']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -298,7 +298,7 @@ function freshState() {
     is2v2: false,
     lineup: [],              // [{charId, team, isPlayer, x, facing}]
     fighters: [],
-    projectiles: [], shockwaves: [], particles: [], floatTexts: [],
+    projectiles: [], shockwaves: [], traps: [], particles: [], floatTexts: [],
     roundTime: ROUND_TIME, roundNum: 1, teamRounds: [0, 0],
     banner: '', roundOverTimer: 0, lastWinner: -1,
     shake: 0, hitstop: 0,
@@ -322,7 +322,7 @@ function makeFighter(spec) {
     hasHit: false, facingLocked: false, blockHeld: false,
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
-    spawnedProj: false, shockDone: false, flurryTick: 1, shurikenTick: 0,
+    spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -345,7 +345,7 @@ function buildLineup(charId, is2v2) {
 }
 function setupRound() {
   state.fighters = state.lineup.map(makeFighter);
-  state.projectiles = []; state.shockwaves = []; state.particles = []; state.floatTexts = [];
+  state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = [];
   state.roundTime = ROUND_TIME; state.hitstop = 0; state.shake = 0;
 }
 function startMatch(charId, is2v2) {
@@ -397,18 +397,19 @@ function specialHitbox(f) {
     return box(ch.kickRange + 40, 40, 55, 42, 20,
       { hitstun: 0.45, knockbackVx: 380, knockbackVy: -150, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 5, pushOnBlock: 200, sfx: 'special' });
   }
-  if (name === 'thunderdash') {
-    if (t > SPECIALS.thunderdash.dash) return null;
-    return box(12, 32, 52, 44, 16,
-      { hitstun: 0.45, knockbackVx: 340, knockbackVy: -180, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 5, pushOnBlock: 200, sfx: 'special' });
+  if (name === 'grab') {
+    if (t < SPECIALS.grab.startup || t > SPECIALS.grab.startup + 0.12) return null;
+    const b = box(8, 30, 50, 60, 24,
+      { hitstun: 0.5, knockbackVx: 120, knockbackVy: -360, chipMul: 0, meterOnHit: 4, meterOnBlock: 0, pushOnBlock: 0, sfx: 'special', unblockable: true });
+    b.isGrab = true;
+    return b;
   }
-  if (name === 'cyclone') {
-    if (t < 0.1 || t > 0.6) return null;
-    const reach = ch.kickRange * 0.6; // wide box centered on the fighter → hits both sides
-    return { x: f.x - (f.w / 2 + reach), y: f.y - 60, w: f.w + reach * 2, h: 56, dmg: 5,
-      move: { hitstun: 0.16, knockbackVx: 120, knockbackVy: -60, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 80, sfx: 'hit' } };
+  if (name === 'teleport') {
+    if (!f.tpDone || t > SPECIALS.teleport.startup + 0.14) return null;
+    return box(10, 30, 52, 46, 17,
+      { hitstun: 0.45, knockbackVx: 300, knockbackVy: -200, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 150, sfx: 'special' });
   }
-  return null; // fireball, iceshards, boulder, shuriken & groundpound deal damage via projectiles/shockwaves
+  return null; // counter (reactive), heal (no hit), trap (shockwave), fireball/groundpound (projectile/shockwave)
 }
 
 function isBlocking(t, a) {
@@ -445,6 +446,8 @@ function applyChip(t, chip) {
   if (t.hp <= 0 && t.state !== 'ko') startKO(t);
 }
 function landHit(a, t, box) {
+  if (t.countering) { triggerCounter(t, a); return; }      // Mirror parries → punish
+  if (box.isGrab) t.x = clamp(a.x + a.facing * 38, WALL_L, WALL_R); // Crush yanks them in
   if (isBlocking(t, a) && !box.move.unblockable) {
     applyChip(t, box.dmg * box.move.chipMul);
     const away = t.x < a.x ? -1 : 1;
@@ -487,13 +490,15 @@ function startSpecial(f) {
   const ch = CHARS[f.charId];
   f.state = 'special'; f.attackName = 'special'; f.specialName = ch.special;
   f.stateTimer = 0; f.hasHit = false; f.facingLocked = true; f.meter = 0;
-  f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.shurikenTick = 0;
+  f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
   if (ch.special === 'uppercut') { f.invuln = 0.35; f.vx = f.facing * 260; f.vy = -700; f.onGround = false; }
   else if (ch.special === 'lunge') { f.vx = f.facing * 620; }
-  else if (ch.special === 'thunderdash') { f.invuln = 0.25; f.vx = f.facing * 720; }
-  else { f.vx = 0; } // groundpound, iceshards, boulder, shuriken, cyclone: stand still
+  else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
+  else if (ch.special === 'teleport') { f.invuln = 0.4; f.vx = 0; } // i-frames through the blink
+  else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
+  else { f.vx = 0; } // groundpound, flurry, counter, heal: stand still
 }
 function spawnFireball(f) {
   state.projectiles.push({
@@ -501,19 +506,42 @@ function spawnFireball(f) {
     team: f.team, owner: f, damage: 16, life: 1.6, r: 11, color: CHARS[f.charId].color,
   });
 }
-function spawnIceShards(f) {
-  for (const oy of [-72, -50, -28]) { // a wall of shards at three heights
-    state.projectiles.push({ x: f.x + f.facing * 28, y: f.y + oy, vx: f.facing * 470,
-      team: f.team, owner: f, damage: 8, life: 1.5, r: 8, color: CHARS[f.charId].color });
+// Rune's trap: a stationary rune that arms, then detonates when an enemy steps near.
+function spawnTrap(f) {
+  state.traps.push({ x: f.x, y: GROUND_Y, team: f.team, owner: f, arm: 0.35, life: 9,
+    r: 50, dmg: 20, color: CHARS[f.charId].color, dead: false });
+}
+// Phantom's blink: instantly reposition to the far side (behind) of the nearest opponent.
+function doBlink(f) {
+  spawnParticles(f.x, f.y - 40, f.color, 12, 3); // departure puff
+  const opp = nearestOpponent(f);
+  if (opp) {
+    const side = (f.x <= opp.x) ? 1 : -1;            // which side of the opponent we're on now
+    f.x = clamp(opp.x + side * 46, WALL_L, WALL_R);  // appear on the opposite (back) side
+    f.facing = (opp.x >= f.x) ? 1 : -1;              // turn to face them
+  } else {
+    f.facing = -f.facing;
   }
+  f.invuln = 0.2;
+  spawnParticles(f.x, f.y - 40, f.color, 12, 3); // arrival puff
+  sfx('special');
 }
-function spawnBoulder(f) {
-  state.projectiles.push({ x: f.x + f.facing * 30, y: f.y - 40, vx: f.facing * 250,
-    team: f.team, owner: f, damage: 26, life: 2.2, r: 18, color: CHARS[f.charId].color });
-}
-function spawnShuriken(f) {
-  state.projectiles.push({ x: f.x + f.facing * 26, y: f.y - 52 + (Math.random() * 16 - 8), vx: f.facing * 640,
-    team: f.team, owner: f, damage: 5, life: 1.4, r: 6, color: CHARS[f.charId].color });
+// Mirror's counter trigger: negate the incoming hit and punish the attacker if in reach.
+function triggerCounter(m, a) {
+  m.countering = false;
+  endAttack(m);
+  m.hitFlash = 0.15; m.invuln = 0.4;
+  sfx('block'); sfx('special');
+  spawnParticles(m.x, m.y - 50, '#ffffff', 14, 3);
+  state.shake = Math.max(state.shake, 7);
+  floatText(m.x, m.y - 96, 'COUNTER', '#fff');
+  if (a && a.team !== m.team && a.state !== 'ko' && Math.abs(a.x - m.x) < 170) {
+    m.facing = a.x >= m.x ? 1 : -1;
+    resolveHit(m, a, { dmg: 24,
+      move: { hitstun: 0.6, knockbackVx: 420, knockbackVy: -300, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, sfx: 'special' } });
+    spawnParticles(a.x, a.y - 50, m.color, 12, 3);
+    if (a.hp <= 0) startKO(a);
+  }
 }
 function spawnShock(f) {
   state.shockwaves.push({
@@ -541,21 +569,21 @@ function updateSpecial(f, dt) {
   } else if (name === 'lunge') {
     if (t < sp.dash) f.vx = f.facing * 620;
     if (t >= sp.dur) endAttack(f);
-  } else if (name === 'iceshards') {
-    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnIceShards(f); }
+  } else if (name === 'counter') {
+    f.countering = (t >= 0.06 && t <= 0.5);               // parry window
+    if (t >= sp.dur) { f.countering = false; endAttack(f); }
+  } else if (name === 'heal') {
+    f.hp = Math.min(f.maxHp, f.hp + 36 * dt);             // ~29 HP if uninterrupted
+    if (Math.random() < 0.4) spawnParticles(f.x + (Math.random() * 20 - 10), f.y - 30 - Math.random() * 30, '#7fffd0', 1, 1);
+    if (t >= sp.dur) { floatText(f.x, f.y - 96, '+HEAL', '#7fffd0'); endAttack(f); }
+  } else if (name === 'grab') {
+    if (t < 0.18) f.vx = f.facing * 180;
     if (t >= sp.dur) endAttack(f);
-  } else if (name === 'boulder') {
-    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnBoulder(f); state.shake = Math.max(state.shake, 5); }
+  } else if (name === 'teleport') {
+    if (!f.tpDone && t >= sp.startup) { f.tpDone = true; doBlink(f); }
     if (t >= sp.dur) endAttack(f);
-  } else if (name === 'shuriken') {
-    if (t >= f.shurikenTick * 0.1 && f.shurikenTick < 6) { spawnShuriken(f); f.shurikenTick++; }
-    if (t >= sp.dur) endAttack(f);
-  } else if (name === 'thunderdash') {
-    if (t < sp.dash) f.vx = f.facing * 720;
-    if (t >= sp.dur) endAttack(f);
-  } else if (name === 'cyclone') {
-    if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; } // multi-hit, both sides
-    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'trap') {
+    if (t >= sp.dur) endAttack(f);                        // rune already placed on activation
   } else {
     if (t >= 0.5) endAttack(f);
   }
@@ -568,6 +596,25 @@ function updateProjectiles(dt) {
     for (const t of state.fighters) { if (tryHit(p.owner, t, box)) { p.life = 0; break; } }
   }
   state.projectiles = state.projectiles.filter(p => p.life > 0 && p.x > -40 && p.x < W + 40);
+}
+function updateTraps(dt) {
+  for (const tr of state.traps) {
+    tr.life -= dt;
+    if (tr.arm > 0) { tr.arm -= dt; continue; } // still arming — can't trigger yet
+    let boom = tr.life <= 0;                     // detonate on timeout...
+    for (const f of state.fighters) {            // ...or when an enemy steps near
+      if (f.team === tr.team || f.state === 'ko') continue;
+      if (f.onGround && Math.abs(f.x - tr.x) < tr.r * 0.55) { boom = true; break; }
+    }
+    if (boom) {
+      state.shockwaves.push({ x: tr.x, y: GROUND_Y, r: 12, maxR: tr.r + 30, grow: 700, damage: tr.dmg,
+        team: tr.team, owner: tr.owner, life: 0.45, color: tr.color, hitSet: new Set() });
+      spawnParticles(tr.x, GROUND_Y - 10, tr.color, 18, 4);
+      state.shake = Math.max(state.shake, 8);
+      tr.dead = true;
+    }
+  }
+  state.traps = state.traps.filter(tr => tr.life > 0 && !tr.dead);
 }
 function updateShockwaves(dt) {
   for (const s of state.shockwaves) {
@@ -910,6 +957,17 @@ function drawProjectiles() {
     ctx.restore();
   }
 }
+function drawTraps() {
+  for (const tr of state.traps) {
+    const pulse = tr.arm > 0 ? 0.4 : 0.6 + Math.sin(Date.now() / 120) * 0.3;
+    ctx.save(); ctx.globalAlpha = Math.max(0.2, pulse);
+    ctx.strokeStyle = tr.color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(tr.x, GROUND_Y, 18, 7, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = pulse * 0.5; ctx.fillStyle = tr.color;
+    ctx.beginPath(); ctx.ellipse(tr.x, GROUND_Y, 9, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
 function drawShockwaves() {
   for (const s of state.shockwaves) {
     ctx.save();
@@ -1027,6 +1085,7 @@ function draw() {
   if (state.shake > 0) { shx = (Math.random() - 0.5) * state.shake; shy = (Math.random() - 0.5) * state.shake; }
   ctx.save(); ctx.translate(shx, shy);
   drawBackground();
+  drawTraps();
   if (state.fighters.length) {
     for (const f of state.fighters) drawFighter(f);
     for (const f of state.fighters) if (f.isPlayer) drawMarker(f);
@@ -1068,7 +1127,7 @@ function update(dt) {
   state.roundTime -= dt;
   for (const f of state.fighters) updateFighter(f, dt);
   resolveCombat();
-  updateProjectiles(dt); updateShockwaves(dt);
+  updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
 
   const r = checkRoundOver(state.fighters);
   if (r !== -1) endRound(r);

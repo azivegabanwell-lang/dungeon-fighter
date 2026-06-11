@@ -168,6 +168,21 @@ const CHARS = [
   { name: 'Echo', color: '#f1c40f', style: 'Lancer. Long reach and a screen-crossing lunge.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
     special: 'lunge', specialName: 'SPEAR LUNGE' },
+  { name: 'Frost', color: '#5ad6e0', style: 'Zoner. Fires a wall of ice shards.',
+    walkSpeed: 190, jumpMul: 0.95, maxHp: 95,  punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
+    special: 'iceshards', specialName: 'ICE SHARDS' },
+  { name: 'Volt', color: '#ff5fb0', style: 'Rushdown. Teleport-dash strike with i-frames.',
+    walkSpeed: 255, jumpMul: 1.15, maxHp: 92,  punchDmg: 6, punchRange: 34, kickDmg: 10, kickRange: 46,
+    special: 'thunderdash', specialName: 'THUNDER DASH' },
+  { name: 'Boulder', color: '#c08a4a', style: 'Heavyweight. Hurls a giant slow boulder.',
+    walkSpeed: 145, jumpMul: 0.80, maxHp: 125, punchDmg: 8, punchRange: 40, kickDmg: 15, kickRange: 50,
+    special: 'boulder', specialName: 'ROCK TOSS' },
+  { name: 'Shade', color: '#8a97a8', style: 'Ninja. Throws a storm of shurikens.',
+    walkSpeed: 265, jumpMul: 1.10, maxHp: 88,  punchDmg: 5, punchRange: 34, kickDmg: 9,  kickRange: 46,
+    special: 'shuriken', specialName: 'SHURIKEN STORM' },
+  { name: 'Karma', color: '#ff9e3d', style: 'All-rounder. Spinning cyclone hits all around.',
+    walkSpeed: 215, jumpMul: 1.05, maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
+    special: 'cyclone', specialName: 'CYCLONE KICK' },
 ];
 
 // Normal attacks. Per-char damage/range overrides come from CHARS.
@@ -187,7 +202,14 @@ const SPECIALS = {
   groundpound: { dur: 0.55, startup: 0.25 },
   uppercut:    { dur: 0.80 },
   lunge:       { dur: 0.50, dash: 0.30 },
+  iceshards:   { dur: 0.50, startup: 0.16 },
+  thunderdash: { dur: 0.45, dash: 0.22 },
+  boulder:     { dur: 0.60, startup: 0.28 },
+  shuriken:    { dur: 0.70 },
+  cyclone:     { dur: 0.70 },
 };
+// Specials that fight at range — the AI keeps distance and zones with these.
+const ZONER_SPECIALS = new Set(['fireball', 'iceshards', 'boulder', 'shuriken']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -300,7 +322,7 @@ function makeFighter(spec) {
     hasHit: false, facingLocked: false, blockHeld: false,
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
-    spawnedProj: false, shockDone: false, flurryTick: 1,
+    spawnedProj: false, shockDone: false, flurryTick: 1, shurikenTick: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -375,7 +397,18 @@ function specialHitbox(f) {
     return box(ch.kickRange + 40, 40, 55, 42, 20,
       { hitstun: 0.45, knockbackVx: 380, knockbackVy: -150, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 5, pushOnBlock: 200, sfx: 'special' });
   }
-  return null; // fireball & groundpound deal damage via projectiles/shockwaves
+  if (name === 'thunderdash') {
+    if (t > SPECIALS.thunderdash.dash) return null;
+    return box(12, 32, 52, 44, 16,
+      { hitstun: 0.45, knockbackVx: 340, knockbackVy: -180, chipMul: 0.25, meterOnHit: 4, meterOnBlock: 5, pushOnBlock: 200, sfx: 'special' });
+  }
+  if (name === 'cyclone') {
+    if (t < 0.1 || t > 0.6) return null;
+    const reach = ch.kickRange * 0.6; // wide box centered on the fighter → hits both sides
+    return { x: f.x - (f.w / 2 + reach), y: f.y - 60, w: f.w + reach * 2, h: 56, dmg: 5,
+      move: { hitstun: 0.16, knockbackVx: 120, knockbackVy: -60, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 80, sfx: 'hit' } };
+  }
+  return null; // fireball, iceshards, boulder, shuriken & groundpound deal damage via projectiles/shockwaves
 }
 
 function isBlocking(t, a) {
@@ -454,18 +487,33 @@ function startSpecial(f) {
   const ch = CHARS[f.charId];
   f.state = 'special'; f.attackName = 'special'; f.specialName = ch.special;
   f.stateTimer = 0; f.hasHit = false; f.facingLocked = true; f.meter = 0;
-  f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1;
+  f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.shurikenTick = 0;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
   if (ch.special === 'uppercut') { f.invuln = 0.35; f.vx = f.facing * 260; f.vy = -700; f.onGround = false; }
   else if (ch.special === 'lunge') { f.vx = f.facing * 620; }
-  else if (ch.special === 'groundpound') { f.vx = 0; }
+  else if (ch.special === 'thunderdash') { f.invuln = 0.25; f.vx = f.facing * 720; }
+  else { f.vx = 0; } // groundpound, iceshards, boulder, shuriken, cyclone: stand still
 }
 function spawnFireball(f) {
   state.projectiles.push({
     x: f.x + f.facing * 30, y: f.y - 50, vx: f.facing * 520,
     team: f.team, owner: f, damage: 16, life: 1.6, r: 11, color: CHARS[f.charId].color,
   });
+}
+function spawnIceShards(f) {
+  for (const oy of [-72, -50, -28]) { // a wall of shards at three heights
+    state.projectiles.push({ x: f.x + f.facing * 28, y: f.y + oy, vx: f.facing * 470,
+      team: f.team, owner: f, damage: 8, life: 1.5, r: 8, color: CHARS[f.charId].color });
+  }
+}
+function spawnBoulder(f) {
+  state.projectiles.push({ x: f.x + f.facing * 30, y: f.y - 40, vx: f.facing * 250,
+    team: f.team, owner: f, damage: 26, life: 2.2, r: 18, color: CHARS[f.charId].color });
+}
+function spawnShuriken(f) {
+  state.projectiles.push({ x: f.x + f.facing * 26, y: f.y - 52 + (Math.random() * 16 - 8), vx: f.facing * 640,
+    team: f.team, owner: f, damage: 5, life: 1.4, r: 6, color: CHARS[f.charId].color });
 }
 function spawnShock(f) {
   state.shockwaves.push({
@@ -492,6 +540,21 @@ function updateSpecial(f, dt) {
     if ((t > 0.25 && f.onGround) || t >= sp.dur) endAttack(f);
   } else if (name === 'lunge') {
     if (t < sp.dash) f.vx = f.facing * 620;
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'iceshards') {
+    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnIceShards(f); }
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'boulder') {
+    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnBoulder(f); state.shake = Math.max(state.shake, 5); }
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'shuriken') {
+    if (t >= f.shurikenTick * 0.1 && f.shurikenTick < 6) { spawnShuriken(f); f.shurikenTick++; }
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'thunderdash') {
+    if (t < sp.dash) f.vx = f.facing * 720;
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'cyclone') {
+    if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; } // multi-hit, both sides
     if (t >= sp.dur) endAttack(f);
   } else {
     if (t >= 0.5) endAttack(f);
@@ -615,7 +678,7 @@ function updateAI(f, dt) {
   const dx = opp.x - f.x, dist = Math.abs(dx), dir = dx > 0 ? 1 : -1;
   const ch = CHARS[f.charId];
   const range = ch.kickRange + f.w;
-  const zoner = ch.special === 'fireball';
+  const zoner = ZONER_SPECIALS.has(ch.special);
 
   if (ai.decideTimer > 0) return; // reaction delay → keep last intent
   ai.decideTimer = 0.10 + Math.random() * 0.22;

@@ -350,7 +350,7 @@ function makeFighter(spec) {
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
-    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0,
+    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -749,7 +749,7 @@ function applyIntent(f, intent) {
   if (f.onGround) {
     if (intent.special && f.meter >= MAX_METER) { startSpecial(f); return; }
     if (intent.punch) { startAttack(f, 'punch'); return; }
-    if (intent.kick)  { startAttack(f, 'kick');  return; }
+    if (intent.kick && f.kickCooldown <= 0) { startAttack(f, 'kick'); f.kickCooldown = 2.5; return; }
   }
 
   // Movement (not while blocking on the ground)
@@ -771,6 +771,7 @@ function updateFighter(f, dt) {
   if (f.buffTimer > 0) { f.buffTimer -= dt; if (Math.random() < 0.3) spawnParticles(f.x, f.y - 40, f.color, 1, 1.5); }
   if (f.shieldTimer > 0) f.shieldTimer -= dt;
   if (f.thornsTimer > 0) f.thornsTimer -= dt;
+  if (f.kickCooldown > 0) f.kickCooldown -= dt;
   if (f.poisonTimer > 0) {
     f.poisonTimer -= dt; f.poisonTick -= dt;
     if (f.poisonTick <= 0) {

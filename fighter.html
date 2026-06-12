@@ -847,9 +847,9 @@ function updateAI(f, dt) {
     ai.blockTimer = 0.30; ai.wantBlock = true; ai.desiredDir = 0; return;
   }
   if (zoner) {
-    if (dist < 230) ai.desiredDir = -dir;        // keep spacing
-    else ai.desiredDir = 0;
-    if (dist < range && ai.attackCooldown <= 0) { // poke if cornered close
+    if (dist > range) ai.desiredDir = dir;       // move in instead of fleeing
+    else ai.desiredDir = 0;                       // hold at striking range
+    if (dist < range && ai.attackCooldown <= 0) {
       if (Math.random() < 0.5) ai.wantKick = true; else ai.wantPunch = true;
       ai.attackCooldown = 0.5 + Math.random() * 0.4;
     }

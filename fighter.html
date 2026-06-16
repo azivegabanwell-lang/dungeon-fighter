@@ -1760,10 +1760,16 @@ function pushAccount() { // merge my account into the shared blob (read-modify-w
 function fetchAccounts(cb) {
   fetch(ACC_URL).then(r => r.json()).then(d => { allAccounts = (d && typeof d === 'object') ? d : {}; if (cb) cb(); }).catch(function () { if (cb) cb(); });
 }
-function createAccount(name) {
+function hashPin(p) { // simple non-reversible obfuscation (not real security)
+  let h = 2166136261; const s = 'brawl:' + p;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+function createAccount(name, pin) {
   name = (name || '').trim().slice(0, 16);
   if (!name) return false;
-  myAccount = blankStats(name); persistLocal(); pushAccount(); return true;
+  myAccount = blankStats(name); myAccount.pin = hashPin(pin);
+  persistLocal(); pushAccount(); return true;
 }
 function recordCharUse(id) { if (!myAccount || id == null) return; myAccount.charUses[id] = (myAccount.charUses[id] || 0) + 1; persistLocal(); }
 function mostUsedChar(a) {
@@ -1787,9 +1793,14 @@ function renderAccount() {
   const el = document.getElementById('accountScreen'); let h = '';
   if (accView.phase === 'menu') {
     if (!myAccount) {
-      h = '<h2>Create an Account</h2>' +
-        '<div class="row"><input id="accName" maxlength="16" placeholder="Username" style="font-family:inherit;font-size:20px;width:200px;text-align:center;padding:8px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;">' +
-        '<button class="btn" onclick="doCreateAccount()">Create</button></div>' +
+      const inp = 'font-family:inherit;font-size:20px;width:200px;text-align:center;padding:8px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;';
+      h = '<h2>Account</h2>' +
+        '<div class="row" style="flex-direction:column;align-items:center;gap:8px;">' +
+        '<input id="accName" maxlength="16" placeholder="Username" style="' + inp + '">' +
+        '<input id="accPin" maxlength="6" inputmode="numeric" placeholder="PIN" style="' + inp + '"></div>' +
+        '<div class="row"><button class="btn" onclick="doCreateAccount()">Create</button>' +
+        '<button class="btn" onclick="doLoginAccount()">Log In</button></div>' +
+        (accView.error ? '<p style="color:#f88">' + accView.error + '</p>' : '<p class="small">New here? pick a name + PIN and Create. Returning? Log In.</p>') +
         '<button class="btn" onclick="openAccountsList()">View All Players</button>' +
         '<button class="btn" onclick="showTitle()">Back</button>';
     } else {
@@ -1810,7 +1821,30 @@ function renderAccount() {
   }
   el.innerHTML = h;
 }
-function doCreateAccount() { const v = document.getElementById('accName'); if (v && createAccount(v.value)) { accView.phase = 'menu'; renderAccount(); } }
+function accFieldVal(id) { const e = document.getElementById(id); return e ? e.value : ''; }
+function doCreateAccount() {
+  const name = accFieldVal('accName').trim().slice(0, 16);
+  const pin = accFieldVal('accPin').trim();
+  if (!name || !pin) { accView.error = 'Enter a username and a PIN.'; renderAccount(); return; }
+  accView.error = 'Checking…'; renderAccount();
+  fetchAccounts(function () {
+    if (allAccounts[name]) { accView.error = 'That name is taken — Log In instead.'; renderAccount(); return; }
+    createAccount(name, pin); accView.error = ''; accView.phase = 'menu'; renderAccount();
+  });
+}
+function doLoginAccount() {
+  const name = accFieldVal('accName').trim().slice(0, 16);
+  const pin = accFieldVal('accPin').trim();
+  if (!name || !pin) { accView.error = 'Enter your username and PIN.'; renderAccount(); return; }
+  accView.error = 'Checking…'; renderAccount();
+  fetchAccounts(function () {
+    const acc = allAccounts[name];
+    if (!acc) { accView.error = 'No account with that name.'; renderAccount(); return; }
+    if (acc.pin !== hashPin(pin)) { accView.error = 'Wrong PIN.'; renderAccount(); return; }
+    if (!acc.charUses) acc.charUses = {};
+    myAccount = acc; persistLocal(); accView.error = ''; accView.phase = 'menu'; renderAccount();
+  });
+}
 function openAccountsList() { accView.phase = 'list'; renderAccount(); fetchAccounts(function () { if (accView.phase === 'list') renderAccount(); }); }
 function viewAccountIdx(i) { accView.viewing = accView.names[i]; accView.phase = 'view'; renderAccount(); }
 function backToAccountMenu() { accView.phase = 'menu'; renderAccount(); }

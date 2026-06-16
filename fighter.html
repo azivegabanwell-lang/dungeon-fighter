@@ -1427,6 +1427,88 @@ function onlineJoin() {
     net.peer.on('error', e => { net.phase = 'error'; net.error = peerErr(e); renderOnlineUI(); });
   } catch (e) { net.phase = 'error'; net.error = String(e); renderOnlineUI(); }
 }
+// ---- Quick Match (codeless auto-pairing via shared matchmaking slots) ----
+const MM_SLOTS = 6;
+function shuffleSlots() {
+  const a = []; for (let i = 0; i < MM_SLOTS; i++) a.push(i);
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+function quickMatch() {
+  teardownNet(); net = baseNet(); net.phase = 'searching';
+  state = freshState(); state.mode = 'onlineMenu';
+  hideOverlays(); document.getElementById('onlineScreen').classList.remove('hidden');
+  if (typeof Peer === 'undefined') { net.phase = 'error'; net.error = 'Networking failed to load (check your internet).'; renderOnlineUI(); return; }
+  net.mmRounds = 0;
+  renderOnlineUI();
+  mmSeek();
+}
+function mmSeek() { // look for a player already waiting in a slot
+  if (!net || net.phase !== 'searching') return;
+  trySeekSlot(shuffleSlots(), 0);
+}
+function trySeekSlot(slots, i) {
+  if (!net || net.phase !== 'searching') return;
+  if (i >= slots.length) { mmHost(); return; }   // none waiting → become a host
+  let gp; try { gp = new Peer(); } catch (e) { mmHost(); return; }
+  net.peer = gp;
+  let done = false;
+  const next = () => { if (done) return; done = true; try { gp.destroy(); } catch (e) {} trySeekSlot(slots, i + 1); };
+  gp.on('open', () => {
+    let c; try { c = gp.connect('sbrawl-mm-' + slots[i], { reliable: true }); } catch (e) { next(); return; }
+    const to = setTimeout(() => { if (!net || !net.connected) next(); }, 3000);
+    c.on('open', () => {
+      c.on('data', m => {
+        if (done || !m) return;
+        if (m.type === 'paired') { done = true; clearTimeout(to); mmPaired(c, gp, false); }
+        else if (m.type === 'busy') { clearTimeout(to); next(); }
+      });
+    });
+    c.on('error', () => { clearTimeout(to); next(); });
+  });
+  gp.on('error', () => next());
+}
+function mmHost() { // claim a free slot and wait for someone to join
+  if (!net || net.phase !== 'searching') return;
+  net.mmRounds++;
+  if (net.mmRounds > 10) { net.phase = 'error'; net.error = 'Could not find an opponent. Please try again.'; renderOnlineUI(); return; }
+  tryHostSlot(shuffleSlots(), 0);
+}
+function tryHostSlot(slots, i) {
+  if (!net || net.phase !== 'searching') return;
+  if (i >= slots.length) { setTimeout(() => { if (net && net.phase === 'searching') mmSeek(); }, 700); return; } // all busy → re-seek
+  let hp; try { hp = new Peer('sbrawl-mm-' + slots[i]); } catch (e) { tryHostSlot(slots, i + 1); return; }
+  net.peer = hp;
+  hp.on('open', () => {
+    net.isHost = true; net.myTeam = 0;
+    // If nobody joins, flip back to seeking so two waiting hosts eventually find each other.
+    const reseek = setTimeout(() => {
+      if (net && net.phase === 'searching' && !net.connected) { try { hp.destroy(); } catch (e) {} mmSeek(); }
+    }, 5000 + Math.random() * 3000);
+    hp.on('connection', c => {
+      if (net.connected) { c.on('open', () => { try { c.send({ type: 'busy' }); } catch (e) {} }); return; }
+      clearTimeout(reseek);
+      c.on('open', () => { try { c.send({ type: 'paired' }); } catch (e) {} mmPaired(c, hp, true); });
+    });
+  });
+  hp.on('error', e => {
+    const t = (e && e.type) || '';
+    try { hp.destroy(); } catch (_) {}
+    if (t === 'unavailable-id') tryHostSlot(slots, i + 1); // slot already taken
+    else { net.phase = 'error'; net.error = peerErr(e); renderOnlineUI(); }
+  });
+}
+function mmPaired(c, peer, isHost) { // matched! hand off to the normal lobby flow
+  if (!net) return;
+  net.peer = peer; net.conn = c; net.isHost = isHost; net.myTeam = isHost ? 0 : 1;
+  net.connected = true; net.phase = 'lobby'; net.localReady = false; net.remoteReady = false;
+  net.localChar = null; net.remoteChar = null;
+  c.on('data', onData);
+  c.on('close', onPeerLeft);
+  c.on('error', onPeerLeft);
+  renderOnlineUI();
+}
+
 function setupConn(c) {
   net.conn = c;
   c.on('open', () => { net.connected = true; net.phase = 'lobby'; net.localReady = false; net.remoteReady = false; renderOnlineUI(); });
@@ -1583,11 +1665,17 @@ function renderOnlineUI() {
   let h = '';
   if (net.phase === 'menu') {
     h = '<h2>ONLINE 2-PLAYER</h2>' +
+        '<button class="btn" onclick="quickMatch()">&#9889; Quick Match</button>' +
+        '<p class="small">instantly pair with another player who is online</p>' +
+        '<p>&mdash; or play with a friend by code &mdash;</p>' +
         '<button class="btn" onclick="onlineCreate()">Create Game</button>' +
-        '<p>&mdash; or join a friend &mdash;</p>' +
         '<div class="row"><input id="joinCode" maxlength="4" placeholder="CODE" style="font-family:inherit;font-size:22px;text-transform:uppercase;width:130px;text-align:center;padding:8px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;">' +
         '<button class="btn" onclick="onlineJoin()">Join</button></div>' +
         (net.error ? '<p style="color:#f88">' + net.error + '</p>' : '') + backBtn;
+  } else if (net.phase === 'searching') {
+    h = '<h2>Searching for an opponent&hellip;</h2>' +
+        '<p class="small">Pairing you with another player who is online right now.</p>' +
+        '<button class="btn" onclick="onlineLeave()">Cancel</button>';
   } else if (net.phase === 'connecting') {
     h = '<h2>Connecting&hellip;</h2>' + leaveBtn;
   } else if (net.phase === 'waiting') {

@@ -61,11 +61,12 @@
   <!-- TITLE -->
   <div class="overlay" id="titleScreen">
     <h1>BRAWLERS</h1>
-    <p>5 fighters &middot; unique specials &middot; 1v1 or 2v2</p>
+    <p>15 fighters &middot; unique specials &middot; 1v1, 2v2 &amp; online</p>
     <div class="row">
       <button class="btn" id="btn1v1">1 v 1</button>
       <button class="btn" id="btn2v2">2 v 2</button>
       <button class="btn" id="btnOnline">Online 2P</button>
+      <button class="btn" id="btnAccount">Account</button>
     </div>
     <p class="small">Move: A / D &nbsp; Jump: W &nbsp; Block: S &nbsp; Punch: J &nbsp; Kick: K &nbsp; Special: L</p>
   </div>
@@ -89,6 +90,9 @@
 
   <!-- ONLINE 2P LOBBY (content filled in by renderOnlineUI) -->
   <div class="overlay hidden" id="onlineScreen"></div>
+
+  <!-- ACCOUNTS (content filled in by renderAccount) -->
+  <div class="overlay hidden" id="accountScreen"></div>
 
   <!-- MATCH OVER -->
   <div class="overlay hidden" id="matchScreen">
@@ -384,6 +388,7 @@ function startMatch(charId, is2v2) {
   setupRound();
   state.mode = 'fight';
   hideOverlays();
+  recordCharUse(charId); // count the character you play (offline)
 }
 
 // =====================================================================
@@ -480,6 +485,15 @@ function applyHit(a, t, box) {
     spawnParticles(a.x, a.y - 50, '#9ab048', 6, 2);
     floatText(a.x, a.y - 96, Math.round(refl), '#9ab048');
     if (a.hp <= 0) startKO(a);
+  }
+  // account stats
+  if (myAccount) {
+    const killed = t.hp <= 0;
+    if (net && net.active) {
+      if (net.isHost) { matchTeamStats[a.team].dmg += box.dmg; if (killed) matchTeamStats[a.team].kills++; }
+    } else if (a.controller === 'local') {
+      myAccount.dmg += box.dmg; if (killed) myAccount.offKills++;
+    }
   }
   if (t.hp <= 0) startKO(t);
 }
@@ -905,6 +919,7 @@ function matchOver(winTeam) {
   document.getElementById('matchSub').textContent =
     teamName(0).toUpperCase() + '  ' + state.teamRounds[0] + ' — ' + state.teamRounds[1] + '  ' + teamName(1).toUpperCase();
   document.getElementById('matchScreen').classList.remove('hidden');
+  if (myAccount) { if (winTeam === 0) myAccount.offWins++; persistLocal(); pushAccount(); }
 }
 
 // =====================================================================
@@ -1324,6 +1339,7 @@ function hideOverlays() {
   document.getElementById('matchScreen').classList.add('hidden');
   document.getElementById('pauseScreen').classList.add('hidden');
   document.getElementById('onlineScreen').classList.add('hidden');
+  document.getElementById('accountScreen').classList.add('hidden');
 }
 function pauseGame() {
   state.mode = 'paused';
@@ -1368,6 +1384,7 @@ document.getElementById('btnMenu').onclick = () => showTitle();
 document.getElementById('btnResume').onclick = () => resumeGame();
 document.getElementById('btnQuit').onclick = () => showTitle();
 document.getElementById('btnOnline').onclick = () => onlineOpen();
+document.getElementById('btnAccount').onclick = () => openAccount();
 
 // =====================================================================
 // ONLINE 2-PLAYER (peer-to-peer via WebRTC / PeerJS)
@@ -1385,7 +1402,7 @@ function genCode() {
 function baseNet() {
   return { active: false, isHost: false, code: '', peer: null, conn: null, connected: false,
     phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '', lineup: null,
-    localChar: null, remoteChar: null };
+    localChar: null, remoteChar: null, statsDone: false };
 }
 function send(obj) { try { if (net && net.conn && net.conn.open) net.conn.send(obj); } catch (e) {} }
 function notify(msg) { if (typeof alert === 'function') alert(msg); }
@@ -1520,9 +1537,17 @@ function onData(msg) {
   if (!msg || !net) return;
   if (msg.type === 'ready') { net.remoteReady = true; maybeStart(); renderOnlineUI(); }
   else if (msg.type === 'char') { net.remoteChar = msg.id; renderOnlineUI(); }
-  else if (msg.type === 'start') { setupOnlineRound(msg.lineup); net.phase = 'fight'; renderOnlineUI(); }
+  else if (msg.type === 'start') { setupOnlineRound(msg.lineup); net.phase = 'fight'; if (msg.newMatch) { net.statsDone = false; recordCharUse(net.localChar); } renderOnlineUI(); }
   else if (msg.type === 'input') { net.remoteInput = msg.i || NO_INTENT; }
   else if (msg.type === 'snap') { if (!net.isHost) applySnapshot(msg.s); }
+  else if (msg.type === 'stats') { // guest receives its match stats from the host
+    if (myAccount && !net.statsDone) {
+      net.statsDone = true;
+      myAccount.dmg += msg.dmg || 0; myAccount.onKills += msg.kills || 0;
+      if (msg.winner === net.myTeam) myAccount.onWins++;
+      persistLocal(); pushAccount();
+    }
+  }
   else if (msg.type === 'leave') { notify('Your friend left the game.'); teardownNet(); showTitle(); }
 }
 function onPeerLeft() {
@@ -1531,11 +1556,13 @@ function onPeerLeft() {
 }
 function maybeStart() {
   if (net.isHost && net.localReady && net.remoteReady) {
+    const newMatch = (net.phase === 'lobby') || (state.online_matchWon >= 0);
     if (state.online_matchWon >= 0) { state.teamRounds = [0, 0]; state.online_matchWon = -1; }
     net.lineup = makeOnlineLineup(); // built from each player's chosen fighter
     setupOnlineRound(net.lineup);
     net.phase = 'fight';
-    send({ type: 'start', lineup: net.lineup });
+    if (newMatch) { matchTeamStats = { 0: { dmg: 0, kills: 0 }, 1: { dmg: 0, kills: 0 } }; net.statsDone = false; recordCharUse(net.localChar); }
+    send({ type: 'start', lineup: net.lineup, newMatch: newMatch });
     renderOnlineUI();
   }
 }
@@ -1606,6 +1633,13 @@ function updateOnlineHost(dt) {
       if (w !== 'draw' && state.teamRounds[w] >= ROUNDS_TO_WIN) {
         state.online_matchWon = w;
         state.banner = teamName(w).toUpperCase() + ' WINS THE MATCH!  (' + sc + ')';
+        if (myAccount && !net.statsDone) { // record this player's stats, send the guest theirs
+          net.statsDone = true;
+          myAccount.dmg += matchTeamStats[0].dmg; myAccount.onKills += matchTeamStats[0].kills;
+          if (w === net.myTeam) myAccount.onWins++;
+          persistLocal(); pushAccount();
+          send({ type: 'stats', dmg: matchTeamStats[1].dmg, kills: matchTeamStats[1].kills, winner: w });
+        }
       } else {
         state.online_matchWon = -1;
         state.banner = (w === 'draw' ? 'DRAW' : teamName(w).toUpperCase() + ' WINS THE ROUND') + '  (' + sc + ')';
@@ -1702,6 +1736,85 @@ function renderOnlineUI() {
   }
   el.innerHTML = h;
 }
+
+// =====================================================================
+// ACCOUNTS — username profiles with stats, shared via JSONBlob
+// =====================================================================
+const ACC_URL = 'https://jsonblob.com/api/jsonBlob/019ed1a7-96df-722f-8a69-805c4a616606';
+let myAccount = (function () { try { const s = localStorage.getItem('brawl_account'); return s ? JSON.parse(s) : null; } catch (e) { return null; } })();
+let allAccounts = {};
+let matchTeamStats = { 0: { dmg: 0, kills: 0 }, 1: { dmg: 0, kills: 0 } };
+let accView = { phase: 'menu', viewing: null, names: [] };
+
+function blankStats(name) { return { name: name, dmg: 0, onWins: 0, offWins: 0, onKills: 0, offKills: 0, charUses: {} }; }
+function persistLocal() { try { if (myAccount) localStorage.setItem('brawl_account', JSON.stringify(myAccount)); } catch (e) {} }
+function pushAccount() { // merge my account into the shared blob (read-modify-write)
+  if (!myAccount) return;
+  persistLocal();
+  fetch(ACC_URL).then(r => r.json()).then(data => {
+    if (!data || typeof data !== 'object') data = {};
+    data[myAccount.name] = myAccount;
+    return fetch(ACC_URL, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  }).catch(function () {});
+}
+function fetchAccounts(cb) {
+  fetch(ACC_URL).then(r => r.json()).then(d => { allAccounts = (d && typeof d === 'object') ? d : {}; if (cb) cb(); }).catch(function () { if (cb) cb(); });
+}
+function createAccount(name) {
+  name = (name || '').trim().slice(0, 16);
+  if (!name) return false;
+  myAccount = blankStats(name); persistLocal(); pushAccount(); return true;
+}
+function recordCharUse(id) { if (!myAccount || id == null) return; myAccount.charUses[id] = (myAccount.charUses[id] || 0) + 1; persistLocal(); }
+function mostUsedChar(a) {
+  let best = null, bn = -1; const cu = (a && a.charUses) || {};
+  for (const k in cu) { if (cu[k] > bn) { bn = cu[k]; best = k; } }
+  return (best != null && CHARS[best]) ? CHARS[best].name : '—';
+}
+function accEsc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function statsHTML(a) {
+  a = a || {};
+  return '<div style="text-align:left;display:inline-block;font-size:15px;line-height:1.9;background:#181d2c;padding:14px 24px;border-radius:10px;">' +
+    'Damage dealt: <b>' + Math.round(a.dmg || 0) + '</b><br>' +
+    'Online wins: <b>' + (a.onWins || 0) + '</b><br>' +
+    'Offline wins: <b>' + (a.offWins || 0) + '</b><br>' +
+    'Online kills: <b>' + (a.onKills || 0) + '</b><br>' +
+    'Offline kills: <b>' + (a.offKills || 0) + '</b><br>' +
+    'Most used: <b>' + accEsc(mostUsedChar(a)) + '</b></div>';
+}
+function openAccount() { hideOverlays(); document.getElementById('accountScreen').classList.remove('hidden'); accView.phase = 'menu'; renderAccount(); }
+function renderAccount() {
+  const el = document.getElementById('accountScreen'); let h = '';
+  if (accView.phase === 'menu') {
+    if (!myAccount) {
+      h = '<h2>Create an Account</h2>' +
+        '<div class="row"><input id="accName" maxlength="16" placeholder="Username" style="font-family:inherit;font-size:20px;width:200px;text-align:center;padding:8px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;">' +
+        '<button class="btn" onclick="doCreateAccount()">Create</button></div>' +
+        '<button class="btn" onclick="openAccountsList()">View All Players</button>' +
+        '<button class="btn" onclick="showTitle()">Back</button>';
+    } else {
+      h = '<h2 style="color:#ffd76b">' + accEsc(myAccount.name) + '</h2>' + statsHTML(myAccount) +
+        '<div class="row"><button class="btn" onclick="openAccountsList()">View All Players</button>' +
+        '<button class="btn" onclick="logoutAccount()">Log Out</button></div>' +
+        '<button class="btn" onclick="showTitle()">Back</button>';
+    }
+  } else if (accView.phase === 'list') {
+    accView.names = Object.keys(allAccounts).filter(n => n[0] !== '_').sort();
+    h = '<h2>Players</h2><div class="row" style="max-width:520px;max-height:280px;overflow:auto;">';
+    if (!accView.names.length) h += '<p>No players yet — be the first!</p>';
+    accView.names.forEach((n, idx) => { h += '<button class="btn" style="width:230px" onclick="viewAccountIdx(' + idx + ')">' + accEsc(n) + '</button>'; });
+    h += '</div><button class="btn" onclick="backToAccountMenu()">Back</button>';
+  } else if (accView.phase === 'view') {
+    const n = accView.viewing; const a = allAccounts[n] || blankStats(n);
+    h = '<h2 style="color:#ffd76b">' + accEsc(n) + '</h2>' + statsHTML(a) + '<button class="btn" onclick="openAccountsList()">Back to Players</button>';
+  }
+  el.innerHTML = h;
+}
+function doCreateAccount() { const v = document.getElementById('accName'); if (v && createAccount(v.value)) { accView.phase = 'menu'; renderAccount(); } }
+function openAccountsList() { accView.phase = 'list'; renderAccount(); fetchAccounts(function () { if (accView.phase === 'list') renderAccount(); }); }
+function viewAccountIdx(i) { accView.viewing = accView.names[i]; accView.phase = 'view'; renderAccount(); }
+function backToAccountMenu() { accView.phase = 'menu'; renderAccount(); }
+function logoutAccount() { myAccount = null; try { localStorage.removeItem('brawl_account'); } catch (e) {} accView.phase = 'menu'; renderAccount(); }
 
 buildCharRow();
 requestAnimationFrame(gameLoop);

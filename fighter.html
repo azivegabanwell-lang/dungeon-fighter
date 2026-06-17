@@ -1747,7 +1747,16 @@ let matchTeamStats = { 0: { dmg: 0, kills: 0 }, 1: { dmg: 0, kills: 0 } };
 let accView = { phase: 'menu', viewing: null, names: [] };
 
 function blankStats(name) { return { name: name, dmg: 0, onWins: 0, offWins: 0, onKills: 0, offKills: 0, charUses: {} }; }
-function persistLocal() { try { if (myAccount) localStorage.setItem('brawl_account', JSON.stringify(myAccount)); } catch (e) {} }
+function loadLocalAccounts() { try { return JSON.parse(localStorage.getItem('brawl_accounts') || '{}'); } catch (e) { return {}; } }
+function persistLocal() {
+  try {
+    if (myAccount) {
+      localStorage.setItem('brawl_account', JSON.stringify(myAccount));
+      const m = loadLocalAccounts(); m[myAccount.name] = myAccount; // local cache so you can log back in offline / same device
+      localStorage.setItem('brawl_accounts', JSON.stringify(m));
+    }
+  } catch (e) {}
+}
 function pushAccount() { // merge my account into the shared blob (read-modify-write)
   if (!myAccount) return;
   persistLocal();
@@ -1828,7 +1837,7 @@ function doCreateAccount() {
   if (!name || !pin) { accView.error = 'Enter a username and a PIN.'; renderAccount(); return; }
   accView.error = 'Checking…'; renderAccount();
   fetchAccounts(function () {
-    if (allAccounts[name]) { accView.error = 'That name is taken — Log In instead.'; renderAccount(); return; }
+    if (allAccounts[name] || loadLocalAccounts()[name]) { accView.error = 'That name is taken — Log In instead.'; renderAccount(); return; }
     createAccount(name, pin); accView.error = ''; accView.phase = 'menu'; renderAccount();
   });
 }
@@ -1838,7 +1847,7 @@ function doLoginAccount() {
   if (!name || !pin) { accView.error = 'Enter your username and PIN.'; renderAccount(); return; }
   accView.error = 'Checking…'; renderAccount();
   fetchAccounts(function () {
-    const acc = allAccounts[name];
+    const acc = allAccounts[name] || loadLocalAccounts()[name]; // online store first, then this device's cache
     if (!acc) { accView.error = 'No account with that name.'; renderAccount(); return; }
     if (acc.pin !== hashPin(pin)) { accView.error = 'Wrong PIN.'; renderAccount(); return; }
     if (!acc.charUses) acc.charUses = {};

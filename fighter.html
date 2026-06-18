@@ -212,9 +212,9 @@ const CHARS = [
   { name: 'Cowboy', color: '#c49a5a', style: 'Gunslinger. Lassos you airborne, then shoots — 38 dmg.',
     walkSpeed: 205, jumpMul: 1.0, maxHp: 95, punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
     special: 'lasso', specialName: 'LASSO SHOT', look: 'cowboy', premium: true, costOff: 50, costOn: 25 },
-  { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. A blinding flurry of blades.',
+  { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. Blinks behind and slashes 5 times (12 each).',
     walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 5, punchRange: 34, kickDmg: 9, kickRange: 46,
-    special: 'bladeflurry', specialName: 'BLADE FLURRY', look: 'ninja', premium: true, costOff: 40, costOn: 20 },
+    special: 'shadowslash', specialName: 'SHADOW SLASH', look: 'ninja', premium: true, costOff: 40, costOn: 20 },
   { name: 'King', color: '#8e44ad', style: 'Royalty. Slams the ground with a royal quake.',
     walkSpeed: 170, jumpMul: 0.9, maxHp: 118, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'royalslam', specialName: 'ROYAL SLAM', look: 'king', premium: true, costOff: 90, costOn: 45 },
@@ -251,7 +251,7 @@ const SPECIALS = {
   slow:        { dur: 0.35, startup: 0.10 },
   thorns:      { dur: 0.30 },
   lasso:       { dur: 0.70, startup: 0.12 },
-  bladeflurry: { dur: 0.60 },
+  shadowslash: { dur: 0.70, startup: 0.10 },
   royalslam:   { dur: 0.45, startup: 0.18 },
   overdrive:   { dur: 0.40 },
 };
@@ -450,10 +450,10 @@ function specialHitbox(f) {
     return box(ch.kickRange * 0.4, 34, 52, 40, 8,
       { hitstun: 0.3, knockbackVx: 120, knockbackVy: -100, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 100, sfx: 'special', poison: 4.0 });
   }
-  if (name === 'bladeflurry') {
-    if (t < 0.1 || t > 0.55) return null;
-    return box(ch.kickRange * 0.4, 32, 54, 34, 5,
-      { hitstun: 0.14, knockbackVx: 80, knockbackVy: -40, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 60, sfx: 'hit' });
+  if (name === 'shadowslash') {
+    if (t < 0.1 || t > 0.6) return null;
+    return box(ch.kickRange * 0.4, 36, 54, 44, 12, // sword slash — 12 each (low knockback keeps them in the combo)
+      { hitstun: 0.16, knockbackVx: 15, knockbackVy: -20, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 40, sfx: 'hit' });
   }
   if (name === 'grab') {
     if (t < SPECIALS.grab.startup || t > SPECIALS.grab.startup + 0.12) return null;
@@ -581,6 +581,7 @@ function startSpecial(f) {
   else if (ch.special === 'freeze') { f.vx = 0; doFreeze(f); }
   else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
   else if (ch.special === 'teleport') { f.invuln = 0.4; f.vx = 0; } // i-frames through the blink
+  else if (ch.special === 'shadowslash') { f.vx = 0; f.invuln = 0.4; doBlink(f); } // blink behind, then slash
   else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
   else if (ch.special === 'shield') { f.vx = 0; f.shieldTimer = 1.2; f.invuln = 1.2; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
   else if (ch.special === 'repel') { f.vx = 0; doRepel(f); }
@@ -721,8 +722,8 @@ function updateSpecial(f, dt) {
       if (f.lassoShots >= 3) endAttack(f);
     } else if (t >= 1.4) endAttack(f); // rope missed — recover
     if (t >= 2.6) endAttack(f);        // hard safety
-  } else if (name === 'bladeflurry') {
-    if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; }   // multi-hit barrage
+  } else if (name === 'shadowslash') {
+    if (t >= 0.1 && f.flurryTick <= 5 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; } // 5 slashes
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'royalslam') {
     if (!f.shockDone && t >= sp.startup) { f.shockDone = true; spawnShock(f); state.shake = Math.max(state.shake, 10); }
@@ -1139,6 +1140,10 @@ function drawFighter(f) {
     if (f.specialName === 'lasso') {
       ctx.strokeStyle = '#caa45a'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(cx + fc * 30, shoulderY - 4, 8, 11, 0, 0, Math.PI * 2); ctx.stroke(); // rope in hand
+    } else if (f.specialName === 'shadowslash') {
+      const sw = Math.sin(f.stateTimer * 45) * 8; // slashing arc
+      ctx.strokeStyle = '#e6eef7'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx + fc * 14, shoulderY + 4); ctx.lineTo(cx + fc * 44, shoulderY - 12 + sw); ctx.stroke(); // sword blade
     } else {
       ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
       ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();

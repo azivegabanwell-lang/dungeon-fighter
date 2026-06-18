@@ -209,9 +209,9 @@ const CHARS = [
     walkSpeed: 170, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'thorns', specialName: 'BRAMBLE' },
   // --- Premium characters (unlocked by buying with wins) ---
-  { name: 'Cowboy', color: '#c49a5a', style: 'Gunslinger. Fans the hammer for a burst of shots.',
+  { name: 'Cowboy', color: '#c49a5a', style: 'Gunslinger. Lassos you airborne, then shoots — 38 dmg.',
     walkSpeed: 205, jumpMul: 1.0, maxHp: 95, punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
-    special: 'sixshooter', specialName: 'SIX-SHOOTER', look: 'cowboy', premium: true, costOff: 50, costOn: 25 },
+    special: 'lasso', specialName: 'LASSO SHOT', look: 'cowboy', premium: true, costOff: 50, costOn: 25 },
   { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. A blinding flurry of blades.',
     walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 5, punchRange: 34, kickDmg: 9, kickRange: 46,
     special: 'bladeflurry', specialName: 'BLADE FLURRY', look: 'ninja', premium: true, costOff: 40, costOn: 20 },
@@ -250,13 +250,13 @@ const SPECIALS = {
   venom:       { dur: 0.45, startup: 0.10 },
   slow:        { dur: 0.35, startup: 0.10 },
   thorns:      { dur: 0.30 },
-  sixshooter:  { dur: 0.55 },
+  lasso:       { dur: 0.70, startup: 0.12 },
   bladeflurry: { dur: 0.60 },
   royalslam:   { dur: 0.45, startup: 0.18 },
   overdrive:   { dur: 0.40 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
-const ZONER_SPECIALS = new Set(['beam', 'javelin', 'sixshooter']);
+const ZONER_SPECIALS = new Set(['beam', 'javelin']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -374,6 +374,7 @@ function makeFighter(spec) {
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
     buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0, hasteTimer: 0, shotTick: 0,
+    lassoTarget: null, lassoShotDone: false, lassoShotTime: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -448,6 +449,13 @@ function specialHitbox(f) {
     if (t < SPECIALS.venom.startup || t > SPECIALS.venom.startup + 0.12) return null;
     return box(ch.kickRange * 0.4, 34, 52, 40, 8,
       { hitstun: 0.3, knockbackVx: 120, knockbackVy: -100, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 100, sfx: 'special', poison: 4.0 });
+  }
+  if (name === 'lasso') {
+    if (t < SPECIALS.lasso.startup || t > SPECIALS.lasso.startup + 0.16) return null;
+    const b = box(ch.kickRange * 0.5, 32, 56, 48, 18,  // the lasso: launches them high
+      { hitstun: 0.5, knockbackVx: 50, knockbackVy: -560, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, pushOnBlock: 0, sfx: 'special', unblockable: true });
+    b.isLasso = true;
+    return b;
   }
   if (name === 'bladeflurry') {
     if (t < 0.1 || t > 0.55) return null;
@@ -528,6 +536,7 @@ function applyChip(t, chip) {
 function landHit(a, t, box) {
   if (t.countering) { triggerCounter(t, a); return; }      // Mirror parries → punish
   if (box.isGrab) t.x = clamp(a.x + a.facing * 38, WALL_L, WALL_R); // Crush yanks them in
+  if (box.isLasso) { a.lassoTarget = t; a.lassoShotTime = a.stateTimer + 0.25; } // Cowboy: shoot them after the launch
   if (isBlocking(t, a) && !box.move.unblockable) {
     applyChip(t, box.dmg * box.move.chipMul);
     const away = t.x < a.x ? -1 : 1;
@@ -571,6 +580,7 @@ function startSpecial(f) {
   f.state = 'special'; f.attackName = 'special'; f.specialName = ch.special;
   f.stateTimer = 0; f.hasHit = false; f.facingLocked = true; f.meter = 0;
   f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false; f.shotTick = 0;
+  f.lassoTarget = null; f.lassoShotDone = false;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
   if (ch.special === 'overdrive') { f.vx = 0; f.hasteTimer = 5.0; spawnParticles(f.x, f.y - 40, ch.color, 18, 3); }
@@ -706,8 +716,16 @@ function updateSpecial(f, dt) {
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'trap') {
     if (t >= sp.dur) endAttack(f);                        // rune already placed on activation
-  } else if (name === 'sixshooter') {
-    if (t >= f.shotTick * 0.12 && f.shotTick < 3) { spawnBullet(f); f.shotTick++; } // 3-shot burst
+  } else if (name === 'lasso') {
+    if (f.lassoTarget && !f.lassoShotDone && t >= f.lassoShotTime) { // after the launch, shoot them
+      f.lassoShotDone = true;
+      const tgt = f.lassoTarget;
+      spawnParticles(f.x + f.facing * 22, f.y - 50, '#ffe26b', 10, 3);
+      spawnBullet(f); sfx('special');
+      if (tgt && tgt.state !== 'ko') {
+        applyHit(f, tgt, { dmg: 20, move: { hitstun: 0.35, knockbackVx: f.facing * 140, knockbackVy: -160, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, sfx: 'special', unblockable: true } });
+      }
+    }
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'bladeflurry') {
     if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; }   // multi-hit barrage
@@ -1105,8 +1123,14 @@ function drawFighter(f) {
   } else if (f.attackName === 'special') {
     drawLimb(cx + fc * 5, shoulderY, cx + fc * 18, shoulderY - 3, col, skin, 6);
     drawLimb(cx + fc * 5, shoulderY + 4, cx + fc * 17, shoulderY + 8, col, skin, 6);
-    ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
-    ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    if (f.specialName === 'lasso') {
+      ctx.strokeStyle = '#caa45a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(cx + fc * 36, shoulderY - 6, 11, 15, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + fc * 18, shoulderY); ctx.lineTo(cx + fc * 28, shoulderY - 6); ctx.stroke();
+    } else {
+      ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
   } else if (f.state === 'block') {
     drawLimb(cx + fc * 4, shoulderY, cx + fc * 12, shoulderY - 3, col, skin, 5);
     drawLimb(cx + fc * 4, shoulderY + 6, cx + fc * 13, shoulderY + 8, col, skin, 5);

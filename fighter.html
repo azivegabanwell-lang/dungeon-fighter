@@ -345,6 +345,7 @@ function makeFighter(spec) {
   return {
     charId: spec.charId, team: spec.team, isPlayer: !!spec.isPlayer, isCPU: !spec.isPlayer,
     controller: spec.controller || (spec.isPlayer ? 'local' : 'cpu'), // 'local' | 'remote' | 'cpu'
+    style: spec.style || 'none',
     name: ch.name, color: ch.color,
     x: spec.x, y: GROUND_Y, vx: 0, vy: 0, facing: spec.facing, onGround: true,
     w: 34, h: 86,
@@ -362,14 +363,15 @@ function makeFighter(spec) {
 function buildLineup(charId, is2v2) {
   const used = new Set([charId]);
   const pick = () => { let c; do { c = Math.floor(Math.random() * CHARS.length); } while (used.has(c)); used.add(c); return c; };
+  const myStyle = (myAccount && myAccount.style) || 'none';
   if (!is2v2) {
     return [
-      { charId, team: 0, isPlayer: true, x: 300, facing: 1 },
+      { charId, team: 0, isPlayer: true, x: 300, facing: 1, style: myStyle },
       { charId: pick(), team: 1, isPlayer: false, x: 600, facing: -1 },
     ];
   }
   return [
-    { charId, team: 0, isPlayer: true, x: 230, facing: 1 },
+    { charId, team: 0, isPlayer: true, x: 230, facing: 1, style: myStyle },
     { charId: pick(), team: 0, isPlayer: false, x: 360, facing: 1 },
     { charId: pick(), team: 1, isPlayer: false, x: 540, facing: -1 },
     { charId: pick(), team: 1, isPlayer: false, x: 670, facing: -1 },
@@ -977,6 +979,32 @@ function drawSpecialArms(f, sx, armY, fc) {
   ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = f.color;
   ctx.beginPath(); ctx.arc(sx + fc * 22, armY, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
 }
+// Draw a cosmetic style (hat/mask/etc.) on a fighter's head.
+function drawStyle(id, cx, headTop, fc, col) {
+  if (id === 'cowboy') {
+    ctx.fillStyle = '#8a5a2b';
+    ctx.fillRect(cx - 14, headTop + 1, 28, 3);                 // brim
+    ctx.fillRect(cx - 7, headTop - 7, 14, 8);                  // crown
+    ctx.fillStyle = '#5e3a18'; ctx.fillRect(cx - 7, headTop - 1, 14, 2); // band
+    ctx.fillStyle = '#cc3a3a'; ctx.fillRect(cx - 8, headTop + 17, 16, 4); // bandana
+  } else if (id === 'ninja') {
+    ctx.fillStyle = '#1b1b1f'; ctx.fillRect(cx - 9, headTop + 11, 18, 6); // lower-face mask
+    ctx.fillStyle = col; ctx.fillRect(cx - 10, headTop + 4, 20, 3);       // headband
+    if (fc > 0) ctx.fillRect(cx - 14, headTop + 4, 5, 10); else ctx.fillRect(cx + 9, headTop + 4, 5, 10); // tail
+  } else if (id === 'king') {
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.moveTo(cx - 9, headTop + 1); ctx.lineTo(cx - 9, headTop - 9); ctx.lineTo(cx - 4.5, headTop - 3);
+    ctx.lineTo(cx, headTop - 11); ctx.lineTo(cx + 4.5, headTop - 3); ctx.lineTo(cx + 9, headTop - 9);
+    ctx.lineTo(cx + 9, headTop + 1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ff5b5b'; ctx.fillRect(cx - 1, headTop - 4, 2, 2);
+  } else if (id === 'cyber') {
+    ctx.fillStyle = '#888'; ctx.fillRect(cx - 1, headTop - 6, 2, 6);      // antenna
+    ctx.fillStyle = '#ff4444'; ctx.beginPath(); ctx.arc(cx, headTop - 7, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.shadowColor = '#3ff'; ctx.shadowBlur = 8;
+    ctx.fillStyle = '#3ff'; ctx.fillRect(cx - 9, headTop + 7, 18, 4); ctx.restore(); // visor
+  }
+}
 function drawFighter(f) {
   const fc = f.facing, col = f.color, x = f.x;
   const skin = '#f1c197', trim = darken(col, 0.55);
@@ -1059,6 +1087,9 @@ function drawFighter(f) {
   ctx.fillRect(ex + fc * 5, headTop + 9, 2, 3);
   ctx.lineWidth = 1.5; ctx.strokeStyle = '#222';
   ctx.beginPath(); ctx.moveTo(ex, headTop + 8); ctx.lineTo(ex + fc * 7, headTop + 9); ctx.stroke();
+
+  // ---- cosmetic style ----
+  if (f.style && f.style !== 'none') drawStyle(f.style, cx, headTop, fc, col);
 
   // ---- hit flash ----
   if (f.hitFlash > 0) {
@@ -1402,9 +1433,46 @@ function genCode() {
 function baseNet() {
   return { active: false, isHost: false, code: '', peer: null, conn: null, connected: false,
     phase: 'menu', myTeam: 0, localReady: false, remoteReady: false, remoteInput: NO_INTENT, error: '', lineup: null,
-    localChar: null, remoteChar: null, statsDone: false };
+    localChar: null, remoteChar: null, statsDone: false,
+    remoteWins: 0, remoteStyle: 'none', bet: null, betError: '' };
 }
 function send(obj) { try { if (net && net.conn && net.conn.open) net.conn.send(obj); } catch (e) {} }
+function sendProfile() { if (net) send({ type: 'profile', style: (myAccount ? myAccount.style : 'none'), wins: (myAccount ? (myAccount.onWins || 0) : 0) }); }
+function proposeBet() {
+  if (!net || !myAccount) return;
+  const v = parseInt(accFieldVal('betAmt') || '0', 10) || 0;
+  if (v <= 0) { net.betError = 'Enter how many wins to bet.'; renderOnlineUI(); return; }
+  if (v > (myAccount.onWins || 0)) { net.betError = "You don't have that many wins."; renderOnlineUI(); return; }
+  if (v > (net.remoteWins || 0)) { net.betError = "Invalid bet — player doesn't have enough wins."; renderOnlineUI(); return; }
+  net.bet = { amount: v, by: 'me', agreed: false }; net.betError = '';
+  send({ type: 'betPropose', amount: v }); renderOnlineUI();
+}
+function agreeBet() {
+  if (!net || !net.bet || net.bet.by !== 'them') return;
+  if (net.bet.amount > (myAccount ? (myAccount.onWins || 0) : 0)) { net.betError = "You don't have enough wins to take that bet."; renderOnlineUI(); return; }
+  net.bet.agreed = true; net.betError = ''; send({ type: 'betAgree' }); renderOnlineUI();
+}
+function declineBet() { if (!net) return; net.bet = null; net.betError = ''; send({ type: 'betDecline' }); renderOnlineUI(); }
+function onlineBetHTML() {
+  if (!myAccount) return '<p class="small">Log into an account (with wins) to bet.</p>';
+  let h = '<div style="background:#1c2030;border-radius:8px;padding:8px 14px;margin-top:6px;max-width:460px;">';
+  if (net.bet && net.bet.agreed) {
+    h += '💰 <b>Wagering ' + net.bet.amount + ' online wins this match!</b>';
+  } else if (net.bet && net.bet.by === 'them') {
+    h += 'Opponent bets <b>' + net.bet.amount + '</b> online wins. ' +
+      '<button class="btn" style="font-size:13px;padding:4px 10px" onclick="agreeBet()">Agree</button>' +
+      '<button class="btn" style="font-size:13px;padding:4px 10px" onclick="declineBet()">Decline</button>';
+  } else if (net.bet && net.bet.by === 'me') {
+    h += 'You bet <b>' + net.bet.amount + '</b> wins — waiting for opponent… ' +
+      '<button class="btn" style="font-size:12px;padding:3px 8px" onclick="declineBet()">Cancel</button>';
+  } else {
+    h += '💰 Bet online wins (you have ' + (myAccount.onWins || 0) + ', they have ' + (net.remoteWins || 0) + '): ' +
+      '<input id="betAmt" inputmode="numeric" style="width:60px;text-align:center;font-family:inherit;font-size:15px;border-radius:6px;border:1px solid #55607f;background:#10141f;color:#fff;"> ' +
+      '<button class="btn" style="font-size:13px;padding:4px 10px" onclick="proposeBet()">Bet</button>';
+  }
+  if (net.betError) h += '<br><span style="color:#fc8">' + net.betError + '</span>';
+  return h + '</div>';
+}
 function notify(msg) { if (typeof alert === 'function') alert(msg); }
 
 function onlineOpen() {
@@ -1523,12 +1591,12 @@ function mmPaired(c, peer, isHost) { // matched! hand off to the normal lobby fl
   c.on('data', onData);
   c.on('close', onPeerLeft);
   c.on('error', onPeerLeft);
-  renderOnlineUI();
+  renderOnlineUI(); sendProfile();
 }
 
 function setupConn(c) {
   net.conn = c;
-  c.on('open', () => { net.connected = true; net.phase = 'lobby'; net.localReady = false; net.remoteReady = false; renderOnlineUI(); });
+  c.on('open', () => { net.connected = true; net.phase = 'lobby'; net.localReady = false; net.remoteReady = false; renderOnlineUI(); sendProfile(); });
   c.on('data', onData);
   c.on('close', onPeerLeft);
   c.on('error', onPeerLeft);
@@ -1540,12 +1608,17 @@ function onData(msg) {
   else if (msg.type === 'start') { setupOnlineRound(msg.lineup); net.phase = 'fight'; if (msg.newMatch) { net.statsDone = false; recordCharUse(net.localChar); } renderOnlineUI(); }
   else if (msg.type === 'input') { net.remoteInput = msg.i || NO_INTENT; }
   else if (msg.type === 'snap') { if (!net.isHost) applySnapshot(msg.s); }
+  else if (msg.type === 'profile') { net.remoteWins = msg.wins || 0; net.remoteStyle = msg.style || 'none'; renderOnlineUI(); }
+  else if (msg.type === 'betPropose') { net.bet = { amount: msg.amount, by: 'them', agreed: false }; net.betError = ''; renderOnlineUI(); }
+  else if (msg.type === 'betAgree') { if (net.bet) net.bet.agreed = true; renderOnlineUI(); }
+  else if (msg.type === 'betDecline') { net.bet = null; net.betError = ''; renderOnlineUI(); }
   else if (msg.type === 'stats') { // guest receives its match stats from the host
     if (myAccount && !net.statsDone) {
       net.statsDone = true;
       myAccount.dmg += msg.dmg || 0; myAccount.onKills += msg.kills || 0;
       if (msg.winner === net.myTeam) myAccount.onWins++;
-      persistLocal(); pushAccount();
+      if (net.bet && net.bet.agreed) { myAccount.onWins = Math.max(0, myAccount.onWins + (msg.winner === net.myTeam ? net.bet.amount : -net.bet.amount)); net.bet = null; }
+      persistLocal(); pushAccount(); sendProfile();
     }
   }
   else if (msg.type === 'leave') { notify('Your friend left the game.'); teardownNet(); showTitle(); }
@@ -1597,8 +1670,10 @@ function teardownNet() {
 function makeOnlineLineup() {
   const a = (net.localChar != null) ? net.localChar : 0;   // host's pick (team 0)
   const b = (net.remoteChar != null) ? net.remoteChar : 0; // guest's pick (team 1)
-  return [ { charId: a, team: 0, controller: 'local',  x: 300, facing: 1 },
-           { charId: b, team: 1, controller: 'remote', x: 600, facing: -1 } ];
+  const sA = (myAccount && myAccount.style) || 'none';     // host's style
+  const sB = net.remoteStyle || 'none';                    // guest's style
+  return [ { charId: a, team: 0, controller: 'local',  x: 300, facing: 1, style: sA },
+           { charId: b, team: 1, controller: 'remote', x: 600, facing: -1, style: sB } ];
 }
 function setupOnlineRound(lineup) {
   state.lineup = lineup;
@@ -1637,8 +1712,11 @@ function updateOnlineHost(dt) {
           net.statsDone = true;
           myAccount.dmg += matchTeamStats[0].dmg; myAccount.onKills += matchTeamStats[0].kills;
           if (w === net.myTeam) myAccount.onWins++;
+          if (net.bet && net.bet.agreed) { myAccount.onWins = Math.max(0, myAccount.onWins + (w === net.myTeam ? net.bet.amount : -net.bet.amount)); }
           persistLocal(); pushAccount();
           send({ type: 'stats', dmg: matchTeamStats[1].dmg, kills: matchTeamStats[1].kills, winner: w });
+          if (net.bet && net.bet.agreed) net.bet = null;
+          sendProfile();
         }
       } else {
         state.online_matchWon = -1;
@@ -1660,7 +1738,7 @@ function serializeSnapshot() {
     phase: state.online_over ? 'over' : (state.countdown > 0 ? 'count' : 'fight'),
     countdown: state.countdown, roundTime: state.roundTime, banner: state.banner,
     teamRounds: state.teamRounds.slice(), matchWon: state.online_matchWon,
-    fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing,
+    fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing, style: f.style,
       state: f.state, attackName: f.attackName, specialName: f.specialName, stateTimer: f.stateTimer,
       hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
       walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering, buffTimer: f.buffTimer, frozen: f.frozen,
@@ -1721,7 +1799,7 @@ function renderOnlineUI() {
     const ready = (net.localChar == null) ? '<p>Pick your fighter above.</p>'
       : (net.localReady ? '<p>Ready! Waiting for your friend&hellip; (' + cnt + '/2)</p>'
         : '<button class="btn" onclick="onlineReady()">Ready</button><p>' + cnt + '/2 ready</p>');
-    h = '<h2>Choose your fighter</h2>' + onlineCharGridHTML() + '<p>Opponent picked: <b>' + opp + '</b></p>' + ready + leaveBtn;
+    h = '<h2>Choose your fighter</h2>' + onlineCharGridHTML() + '<p>Opponent picked: <b>' + opp + '</b></p>' + onlineBetHTML() + ready + leaveBtn;
   } else if (net.phase === 'rematch') {
     const cnt = (net.localReady ? 1 : 0) + (net.remoteReady ? 1 : 0);
     const opp = net.remoteChar != null ? CHARS[net.remoteChar].name : '…';
@@ -1729,7 +1807,7 @@ function renderOnlineUI() {
       ? '<p>Waiting for your friend&hellip; (' + cnt + '/2 ready)</p>'
       : '<button class="btn" onclick="onlineReady()">Play Again</button><p>' + cnt + '/2 ready</p>';
     h = '<h2>' + (state.banner || '') + '</h2><p>Change fighter, or play again:</p>' + onlineCharGridHTML() +
-        '<p>Opponent: <b>' + opp + '</b></p>' + btn + leaveBtn;
+        '<p>Opponent: <b>' + opp + '</b></p>' + onlineBetHTML() + btn + leaveBtn;
   } else if (net.phase === 'error') {
     h = '<h2>Connection problem</h2><p style="color:#f88">' + (net.error || '') + '</p>' +
         '<button class="btn" onclick="onlineOpen()">Try Again</button><button class="btn" onclick="showTitle()">Main Menu</button>';
@@ -1741,12 +1819,31 @@ function renderOnlineUI() {
 // ACCOUNTS — username profiles with stats, shared via JSONBlob
 // =====================================================================
 const ACC_URL = 'https://jsonblob.com/api/jsonBlob/019ed1a7-96df-722f-8a69-805c4a616606';
-let myAccount = (function () { try { const s = localStorage.getItem('brawl_account'); return s ? JSON.parse(s) : null; } catch (e) { return null; } })();
+// Cosmetic styles you buy with wins (wins are the currency).
+const STYLES = [
+  { id: 'none',   name: 'Default', costOff: 0,  costOn: 0  },
+  { id: 'cowboy', name: 'Cowboy',  costOff: 50, costOn: 25 },
+  { id: 'ninja',  name: 'Ninja',   costOff: 40, costOn: 20 },
+  { id: 'king',   name: 'King',    costOff: 90, costOn: 45 },
+  { id: 'cyber',  name: 'Cyber',   costOff: 60, costOn: 30 },
+];
+function styleById(id) { return STYLES.find(s => s.id === id) || STYLES[0]; }
+function normalizeAccount(a) {
+  if (!a) return a;
+  if (a.dmg == null) a.dmg = 0; if (a.onWins == null) a.onWins = 0; if (a.offWins == null) a.offWins = 0;
+  if (a.onKills == null) a.onKills = 0; if (a.offKills == null) a.offKills = 0;
+  if (!a.charUses) a.charUses = {};
+  if (!Array.isArray(a.styles)) a.styles = ['none'];
+  if (a.styles.indexOf('none') < 0) a.styles.unshift('none');
+  if (!a.style) a.style = 'none';
+  return a;
+}
+let myAccount = (function () { try { const s = localStorage.getItem('brawl_account'); return s ? normalizeAccount(JSON.parse(s)) : null; } catch (e) { return null; } })();
 let allAccounts = {};
 let matchTeamStats = { 0: { dmg: 0, kills: 0 }, 1: { dmg: 0, kills: 0 } };
 let accView = { phase: 'menu', viewing: null, names: [] };
 
-function blankStats(name) { return { name: name, dmg: 0, onWins: 0, offWins: 0, onKills: 0, offKills: 0, charUses: {} }; }
+function blankStats(name) { return { name: name, dmg: 0, onWins: 0, offWins: 0, onKills: 0, offKills: 0, charUses: {}, styles: ['none'], style: 'none' }; }
 function loadLocalAccounts() { try { return JSON.parse(localStorage.getItem('brawl_accounts') || '{}'); } catch (e) { return {}; } }
 function persistLocal() {
   try {
@@ -1814,10 +1911,30 @@ function renderAccount() {
         '<button class="btn" onclick="showTitle()">Back</button>';
     } else {
       h = '<h2 style="color:#ffd76b">' + accEsc(myAccount.name) + '</h2>' + statsHTML(myAccount) +
-        '<div class="row"><button class="btn" onclick="openAccountsList()">View All Players</button>' +
+        '<div class="row"><button class="btn" onclick="openShop()">🛒 Shop</button>' +
+        '<button class="btn" onclick="openAccountsList()">View All Players</button>' +
         '<button class="btn" onclick="logoutAccount()">Log Out</button></div>' +
         '<button class="btn" onclick="showTitle()">Back</button>';
     }
+  } else if (accView.phase === 'shop') {
+    h = '<h2>🛒 Style Shop</h2>' +
+      '<p class="small">Wins are the currency. You have <b>' + (myAccount.offWins || 0) + '</b> offline wins &middot; <b>' + (myAccount.onWins || 0) + '</b> online wins.</p>' +
+      '<div class="row" style="flex-direction:column;align-items:center;gap:6px;max-height:300px;overflow:auto;">';
+    STYLES.forEach(s => {
+      if (s.id === 'none') return;
+      const owned = myAccount.styles.indexOf(s.id) >= 0;
+      const equipped = myAccount.style === s.id;
+      let right;
+      if (equipped) right = '<span style="color:#6f6">Equipped</span>';
+      else if (owned) right = '<button class="btn" style="font-size:13px;padding:5px 12px" onclick="equipStyle(\'' + s.id + '\')">Equip</button>';
+      else right = '<button class="btn" style="font-size:12px;padding:5px 9px" onclick="buyStyle(\'' + s.id + '\',\'off\')">' + s.costOff + ' off-wins</button>' +
+                   '<button class="btn" style="font-size:12px;padding:5px 9px" onclick="buyStyle(\'' + s.id + '\',\'on\')">' + s.costOn + ' on-wins</button>';
+      h += '<div class="row" style="width:420px;justify-content:space-between;align-items:center;background:#181d2c;border-radius:8px;padding:6px 12px;">' +
+        '<b>' + s.name + '</b><span class="row" style="gap:6px">' + right + '</span></div>';
+    });
+    h += '</div>' + (accView.error ? '<p style="color:#fc8">' + accView.error + '</p>' : '') +
+      '<button class="btn" onclick="equipStyle(\'none\')">No Style</button>' +
+      '<button class="btn" onclick="backToAccountMenu()">Back</button>';
   } else if (accView.phase === 'list') {
     accView.names = Object.keys(allAccounts).filter(n => n[0] !== '_').sort();
     h = '<h2>Players</h2><div class="row" style="max-width:520px;max-height:280px;overflow:auto;">';
@@ -1850,14 +1967,32 @@ function doLoginAccount() {
     const acc = allAccounts[name] || loadLocalAccounts()[name]; // online store first, then this device's cache
     if (!acc) { accView.error = 'No account with that name.'; renderAccount(); return; }
     if (acc.pin !== hashPin(pin)) { accView.error = 'Wrong PIN.'; renderAccount(); return; }
-    if (!acc.charUses) acc.charUses = {};
-    myAccount = acc; persistLocal(); accView.error = ''; accView.phase = 'menu'; renderAccount();
+    myAccount = normalizeAccount(acc); persistLocal(); accView.error = ''; accView.phase = 'menu'; renderAccount();
   });
 }
 function openAccountsList() { accView.phase = 'list'; renderAccount(); fetchAccounts(function () { if (accView.phase === 'list') renderAccount(); }); }
 function viewAccountIdx(i) { accView.viewing = accView.names[i]; accView.phase = 'view'; renderAccount(); }
-function backToAccountMenu() { accView.phase = 'menu'; renderAccount(); }
+function backToAccountMenu() { accView.phase = 'menu'; accView.error = ''; renderAccount(); }
 function logoutAccount() { myAccount = null; try { localStorage.removeItem('brawl_account'); } catch (e) {} accView.phase = 'menu'; renderAccount(); }
+function openShop() { if (!myAccount) return; accView.phase = 'shop'; accView.error = ''; renderAccount(); }
+function buyStyle(id, cur) {
+  if (!myAccount) return;
+  const s = styleById(id);
+  if (myAccount.styles.indexOf(id) >= 0) { equipStyle(id); return; }
+  const cost = (cur === 'off') ? s.costOff : s.costOn;
+  const have = (cur === 'off') ? (myAccount.offWins || 0) : (myAccount.onWins || 0);
+  if (have < cost) { accView.error = 'Not enough ' + (cur === 'off' ? 'offline' : 'online') + ' wins (need ' + cost + ').'; renderAccount(); return; }
+  if (cur === 'off') myAccount.offWins -= cost; else myAccount.onWins -= cost;
+  myAccount.styles.push(id);
+  myAccount.style = id; // auto-equip the new style
+  persistLocal(); pushAccount();
+  accView.error = ''; renderAccount();
+}
+function equipStyle(id) {
+  if (!myAccount) return;
+  if (id !== 'none' && myAccount.styles.indexOf(id) < 0) return; // must own it
+  myAccount.style = id; persistLocal(); pushAccount(); accView.error = ''; renderAccount();
+}
 
 buildCharRow();
 requestAnimationFrame(gameLoop);

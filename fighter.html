@@ -218,9 +218,9 @@ const CHARS = [
   { name: 'King', color: '#8e44ad', style: 'Royalty. Slams the ground with a royal quake.',
     walkSpeed: 170, jumpMul: 0.9, maxHp: 118, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'royalslam', specialName: 'ROYAL SLAM', look: 'king', premium: true, costOff: 90, costOn: 45 },
-  { name: 'Cyber', color: '#00d0ff', style: 'Android. Overclocks for blazing attack speed.',
+  { name: 'Cyber', color: '#00d0ff', style: 'Android. Machine-gun arm: 10 bullets, 4 dmg each.',
     walkSpeed: 230, jumpMul: 1.1, maxHp: 96, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'overdrive', specialName: 'OVERDRIVE', look: 'cyber', premium: true, costOff: 60, costOn: 30 },
+    special: 'machinegun', specialName: 'MACHINE GUN', look: 'cyber', premium: true, costOff: 60, costOn: 30 },
 ];
 
 // Normal attacks. Per-char damage/range overrides come from CHARS.
@@ -253,10 +253,10 @@ const SPECIALS = {
   lasso:       { dur: 0.70, startup: 0.12 },
   shadowslash: { dur: 0.70, startup: 0.10 },
   royalslam:   { dur: 0.45, startup: 0.18 },
-  overdrive:   { dur: 0.40 },
+  machinegun:  { dur: 1.00 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
-const ZONER_SPECIALS = new Set(['beam', 'javelin']);
+const ZONER_SPECIALS = new Set(['beam', 'javelin', 'machinegun']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -575,8 +575,7 @@ function startSpecial(f) {
   f.lassoTarget = null; f.lassoShots = 0;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
-  if (ch.special === 'overdrive') { f.vx = 0; f.hasteTimer = 5.0; spawnParticles(f.x, f.y - 40, ch.color, 18, 3); }
-  else if (ch.special === 'lifesteal') { f.vx = f.facing * 240; }  // small lunge into the bite
+  if (ch.special === 'lifesteal') { f.vx = f.facing * 240; }        // small lunge into the bite
   else if (ch.special === 'berserk') { f.vx = 0; f.buffTimer = 6.0; spawnParticles(f.x, f.y - 40, ch.color, 20, 3); }
   else if (ch.special === 'freeze') { f.vx = 0; doFreeze(f); }
   else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
@@ -728,11 +727,17 @@ function updateSpecial(f, dt) {
   } else if (name === 'royalslam') {
     if (!f.shockDone && t >= sp.startup) { f.shockDone = true; spawnShock(f); state.shake = Math.max(state.shake, 10); }
     if (t >= sp.dur) endAttack(f);
-  } else if (name === 'overdrive') {
-    if (t >= sp.dur) endAttack(f);                        // haste applied on activation
+  } else if (name === 'machinegun') {
+    if (t >= f.shotTick * 0.07 && f.shotTick < 10) { spawnGunBullet(f); f.shotTick++; sfx('hit'); } // 10 bullets
+    if (t >= sp.dur) endAttack(f);
   } else {
     if (t >= 0.5) endAttack(f);
   }
+}
+// Cyber's machine gun: a fast bullet that deals 4 damage (low knockback so the stream keeps hitting).
+function spawnGunBullet(f) {
+  state.projectiles.push({ x: f.x + f.facing * 30, y: f.y - 50 + (Math.random() * 6 - 3), vx: f.facing * 920, dir: f.facing,
+    team: f.team, owner: f, damage: 4, life: 1.2, r: 5, color: '#8ff', kind: 'gun' });
 }
 // Cowboy's shot — a fast bullet (visual only; damage is applied to the lassoed target).
 function spawnBullet(f) {
@@ -754,6 +759,12 @@ function updateProjectiles(dt) {
   for (const p of state.projectiles) {
     p.x += p.vx * dt; p.life -= dt;
     if (p.kind === 'bullet') continue; // visual only
+    if (p.kind === 'gun') {            // machine-gun bullet — 4 dmg, low knockback so the stream lands
+      const gbox = { x: p.x - p.r, y: p.y - p.r, w: p.r * 2, h: p.r * 2, dmg: p.damage,
+        move: { hitstun: 0.12, knockbackVx: 20, knockbackVy: -15, chipMul: 0.4, meterOnHit: 1, meterOnBlock: 1, pushOnBlock: 20, sfx: 'hit' } };
+      for (const t of state.fighters) { if (tryHit(p.owner, t, gbox)) { p.life = 0; break; } }
+      continue;
+    }
     if (p.kind === 'lasso') {          // flies out, grabs the first opponent it touches
       for (const t of state.fighters) {
         if (t.team === p.team || t === p.owner || t.state === 'ko' || t.invuln > 0) continue;
@@ -1150,6 +1161,10 @@ function drawFighter(f) {
       const sw = Math.sin(f.stateTimer * 45) * 8; // slashing arc
       ctx.strokeStyle = '#e6eef7'; ctx.lineWidth = 3; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(cx + fc * 14, shoulderY + 4); ctx.lineTo(cx + fc * 44, shoulderY - 12 + sw); ctx.stroke(); // sword blade
+    } else if (f.specialName === 'machinegun') {
+      ctx.strokeStyle = '#7788aa'; ctx.lineWidth = 6; ctx.lineCap = 'butt'; // gun barrel
+      ctx.beginPath(); ctx.moveTo(cx + fc * 14, shoulderY); ctx.lineTo(cx + fc * 36, shoulderY - 2); ctx.stroke();
+      if (Math.random() < 0.6) { ctx.fillStyle = '#ffec6b'; ctx.beginPath(); ctx.arc(cx + fc * 40, shoulderY - 2, 4, 0, Math.PI * 2); ctx.fill(); } // muzzle flash
     } else {
       ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
       ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();

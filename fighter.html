@@ -452,7 +452,7 @@ function specialHitbox(f) {
   }
   if (name === 'shadowslash') {
     if (t < 0.1 || t > 0.6) return null;
-    return box(ch.kickRange * 0.4, 36, 54, 44, 12, // sword slash — 12 each (low knockback keeps them in the combo)
+    return box(ch.kickRange * 0.4, 36, 54, 44, 8, // sword slash — 8 each (5 slashes = 40)
       { hitstun: 0.16, knockbackVx: 15, knockbackVy: -20, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 40, sfx: 'hit' });
   }
   if (name === 'grab') {

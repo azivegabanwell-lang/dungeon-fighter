@@ -374,7 +374,7 @@ function makeFighter(spec) {
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
     buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0, hasteTimer: 0, shotTick: 0,
-    lassoTarget: null, lassoShotDone: false, lassoShotTime: 0,
+    lassoTarget: null, lassoShots: 0, lassoNextShot: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -449,13 +449,6 @@ function specialHitbox(f) {
     if (t < SPECIALS.venom.startup || t > SPECIALS.venom.startup + 0.12) return null;
     return box(ch.kickRange * 0.4, 34, 52, 40, 8,
       { hitstun: 0.3, knockbackVx: 120, knockbackVy: -100, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 100, sfx: 'special', poison: 4.0 });
-  }
-  if (name === 'lasso') {
-    if (t < SPECIALS.lasso.startup || t > SPECIALS.lasso.startup + 0.16) return null;
-    const b = box(820, 32, 56, 48, 18,  // the lasso reaches all the way across the map, then launches them high
-      { hitstun: 0.5, knockbackVx: 50, knockbackVy: -560, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, pushOnBlock: 0, sfx: 'special', unblockable: true });
-    b.isLasso = true;
-    return b;
   }
   if (name === 'bladeflurry') {
     if (t < 0.1 || t > 0.55) return null;
@@ -536,7 +529,6 @@ function applyChip(t, chip) {
 function landHit(a, t, box) {
   if (t.countering) { triggerCounter(t, a); return; }      // Mirror parries → punish
   if (box.isGrab) t.x = clamp(a.x + a.facing * 38, WALL_L, WALL_R); // Crush yanks them in
-  if (box.isLasso) { a.lassoTarget = t; a.lassoShotTime = a.stateTimer + 0.25; } // Cowboy: shoot them after the launch
   if (isBlocking(t, a) && !box.move.unblockable) {
     applyChip(t, box.dmg * box.move.chipMul);
     const away = t.x < a.x ? -1 : 1;
@@ -580,7 +572,7 @@ function startSpecial(f) {
   f.state = 'special'; f.attackName = 'special'; f.specialName = ch.special;
   f.stateTimer = 0; f.hasHit = false; f.facingLocked = true; f.meter = 0;
   f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false; f.shotTick = 0;
-  f.lassoTarget = null; f.lassoShotDone = false;
+  f.lassoTarget = null; f.lassoShots = 0;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
   if (ch.special === 'overdrive') { f.vx = 0; f.hasteTimer = 5.0; spawnParticles(f.x, f.y - 40, ch.color, 18, 3); }
@@ -717,16 +709,18 @@ function updateSpecial(f, dt) {
   } else if (name === 'trap') {
     if (t >= sp.dur) endAttack(f);                        // rune already placed on activation
   } else if (name === 'lasso') {
-    if (f.lassoTarget && !f.lassoShotDone && t >= f.lassoShotTime) { // after the launch, shoot them
-      f.lassoShotDone = true;
+    if (!f.spawnedProj && t >= sp.startup) { f.spawnedProj = true; spawnLasso(f); } // fling the rope
+    if (f.lassoTarget) {
       const tgt = f.lassoTarget;
-      spawnParticles(f.x + f.facing * 22, f.y - 50, '#ffe26b', 10, 3);
-      spawnBullet(f); sfx('special');
-      if (tgt && tgt.state !== 'ko') {
-        applyHit(f, tgt, { dmg: 20, move: { hitstun: 0.35, knockbackVx: f.facing * 140, knockbackVy: -160, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, sfx: 'special', unblockable: true } });
+      tgt.vy = Math.min(tgt.vy, -120); tgt.onGround = false; // keep them suspended mid-air
+      if (f.lassoShots < 3 && t >= f.lassoNextShot) {       // 3 shots, 12 each
+        f.lassoShots++; f.lassoNextShot = t + 0.18;
+        spawnParticles(f.x + f.facing * 22, f.y - 50, '#ffe26b', 8, 3); spawnBullet(f); sfx('special');
+        if (tgt.state !== 'ko') applyHit(f, tgt, { dmg: 12, move: { hitstun: 0.3, knockbackVx: 0, knockbackVy: -60, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, sfx: 'special', unblockable: true } });
       }
-    }
-    if (t >= sp.dur) endAttack(f);
+      if (f.lassoShots >= 3) endAttack(f);
+    } else if (t >= 1.4) endAttack(f); // rope missed — recover
+    if (t >= 2.6) endAttack(f);        // hard safety
   } else if (name === 'bladeflurry') {
     if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; }   // multi-hit barrage
     if (t >= sp.dur) endAttack(f);
@@ -739,14 +733,33 @@ function updateSpecial(f, dt) {
     if (t >= 0.5) endAttack(f);
   }
 }
-// Cowboy's Six-Shooter: a fast small bullet.
+// Cowboy's shot — a fast bullet (visual only; damage is applied to the lassoed target).
 function spawnBullet(f) {
-  state.projectiles.push({ x: f.x + f.facing * 28, y: f.y - 50, vx: f.facing * 760, dir: f.facing,
-    team: f.team, owner: f, damage: 7, life: 1.2, r: 5, color: '#ffe26b', kind: 'bullet' });
+  state.projectiles.push({ x: f.x + f.facing * 28, y: f.y - 50, vx: f.facing * 900, dir: f.facing,
+    team: f.team, owner: f, damage: 0, life: 1.0, r: 5, color: '#ffe26b', kind: 'bullet' });
+}
+// Cowboy's lasso — a fast rope that flies to the opponent and yanks them very high.
+function spawnLasso(f) {
+  state.projectiles.push({ x: f.x + f.facing * 26, y: f.y - 50, vx: f.facing * 1100, dir: f.facing,
+    team: f.team, owner: f, damage: 2, life: 1.4, r: 12, color: '#caa45a', kind: 'lasso' });
+}
+function lassoConnect(owner, t) {
+  applyHit(owner, t, { dmg: 2, move: { hitstun: 1.4, knockbackVx: 0, knockbackVy: -900, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, sfx: 'special', unblockable: true } }); // yank very high, 2 dmg
+  owner.lassoTarget = t; owner.lassoShots = 0; owner.lassoNextShot = owner.stateTimer + 0.2;
+  state.shake = Math.max(state.shake, 7);
+  spawnParticles(t.x, t.y - 40, '#caa45a', 14, 3);
 }
 function updateProjectiles(dt) {
   for (const p of state.projectiles) {
     p.x += p.vx * dt; p.life -= dt;
+    if (p.kind === 'bullet') continue; // visual only
+    if (p.kind === 'lasso') {          // flies out, grabs the first opponent it touches
+      for (const t of state.fighters) {
+        if (t.team === p.team || t === p.owner || t.state === 'ko' || t.invuln > 0) continue;
+        if (rectsOverlap({ x: p.x - p.r, y: p.y - p.r, w: p.r * 2, h: p.r * 2 }, feetToBodyRect(t))) { lassoConnect(p.owner, t); p.life = 0; break; }
+      }
+      continue;
+    }
     const box = { x: p.x - p.r, y: p.y - p.r, w: p.r * 2, h: p.r * 2, dmg: p.damage,
       move: { hitstun: 0.4, knockbackVx: 260, knockbackVy: -150, chipMul: 0.3, meterOnHit: 6, meterOnBlock: 4, pushOnBlock: 150, sfx: 'hit' } };
     for (const t of state.fighters) { if (tryHit(p.owner, t, box)) { p.life = 0; break; } }
@@ -1125,10 +1138,7 @@ function drawFighter(f) {
     drawLimb(cx + fc * 5, shoulderY + 4, cx + fc * 17, shoulderY + 8, col, skin, 6);
     if (f.specialName === 'lasso') {
       ctx.strokeStyle = '#caa45a'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(cx + fc * 36, shoulderY - 6, 11, 15, 0, 0, Math.PI * 2); ctx.stroke();
-      // rope whips far across during the throw
-      const flung = f.stateTimer >= SPECIALS.lasso.startup && f.stateTimer <= SPECIALS.lasso.startup + 0.18;
-      ctx.beginPath(); ctx.moveTo(cx + fc * 18, shoulderY); ctx.lineTo(cx + fc * (flung ? 520 : 28), shoulderY - (flung ? 16 : 6)); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cx + fc * 30, shoulderY - 4, 8, 11, 0, 0, Math.PI * 2); ctx.stroke(); // rope in hand
     } else {
       ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
       ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();
@@ -1217,7 +1227,12 @@ function drawProjectiles() {
   for (const p of state.projectiles) {
     ctx.save();
     ctx.shadowColor = p.color; ctx.shadowBlur = 14;
-    if (p.kind === 'spear') {
+    if (p.kind === 'lasso') {
+      const d = p.dir || 1;
+      ctx.strokeStyle = '#caa45a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, 12, 9, 0, 0, Math.PI * 2); ctx.stroke();   // loop
+      ctx.beginPath(); ctx.moveTo(p.x - d * 14, p.y + 3); ctx.lineTo(p.x - d * 44, p.y + 6); ctx.stroke(); // trailing rope
+    } else if (p.kind === 'spear') {
       const d = p.dir || (p.vx >= 0 ? 1 : -1);
       ctx.strokeStyle = '#cda86a'; ctx.lineWidth = 4; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(p.x - d * 16, p.y); ctx.lineTo(p.x + d * 12, p.y); ctx.stroke(); // shaft

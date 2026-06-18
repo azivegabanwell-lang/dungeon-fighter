@@ -1932,7 +1932,9 @@ function renderAccount() {
       h += '<div class="row" style="width:420px;justify-content:space-between;align-items:center;background:#181d2c;border-radius:8px;padding:6px 12px;">' +
         '<b>' + s.name + '</b><span class="row" style="gap:6px">' + right + '</span></div>';
     });
-    h += '</div>' + (accView.error ? '<p style="color:#fc8">' + accView.error + '</p>' : '') +
+    h += '</div>' +
+      '<div class="row" style="margin-top:8px;"><input id="adminCode" placeholder="admin code" style="font-family:inherit;font-size:15px;width:150px;text-align:center;padding:6px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;"><button class="btn" onclick="adminUnlock()">Enter</button></div>' +
+      (accView.error ? '<p style="color:#fc8">' + accView.error + '</p>' : '') +
       '<button class="btn" onclick="equipStyle(\'none\')">No Style</button>' +
       '<button class="btn" onclick="backToAccountMenu()">Back</button>';
   } else if (accView.phase === 'list') {
@@ -1992,6 +1994,14 @@ function equipStyle(id) {
   if (!myAccount) return;
   if (id !== 'none' && myAccount.styles.indexOf(id) < 0) return; // must own it
   myAccount.style = id; persistLocal(); pushAccount(); accView.error = ''; renderAccount();
+}
+function adminUnlock() {
+  if (!myAccount) return;
+  const code = (accFieldVal('adminCode') || '').trim().toLowerCase();
+  if (code !== 'admin') { accView.error = 'Wrong admin code.'; renderAccount(); return; }
+  STYLES.forEach(s => { if (myAccount.styles.indexOf(s.id) < 0) myAccount.styles.push(s.id); });
+  persistLocal(); pushAccount();
+  accView.error = 'Admin unlocked — all styles are yours!'; renderAccount();
 }
 
 buildCharRow();

@@ -452,7 +452,7 @@ function specialHitbox(f) {
   }
   if (name === 'lasso') {
     if (t < SPECIALS.lasso.startup || t > SPECIALS.lasso.startup + 0.16) return null;
-    const b = box(ch.kickRange * 0.5, 32, 56, 48, 18,  // the lasso: launches them high
+    const b = box(820, 32, 56, 48, 18,  // the lasso reaches all the way across the map, then launches them high
       { hitstun: 0.5, knockbackVx: 50, knockbackVy: -560, chipMul: 0, meterOnHit: 0, meterOnBlock: 0, pushOnBlock: 0, sfx: 'special', unblockable: true });
     b.isLasso = true;
     return b;
@@ -1126,7 +1126,9 @@ function drawFighter(f) {
     if (f.specialName === 'lasso') {
       ctx.strokeStyle = '#caa45a'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(cx + fc * 36, shoulderY - 6, 11, 15, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx + fc * 18, shoulderY); ctx.lineTo(cx + fc * 28, shoulderY - 6); ctx.stroke();
+      // rope whips far across during the throw
+      const flung = f.stateTimer >= SPECIALS.lasso.startup && f.stateTimer <= SPECIALS.lasso.startup + 0.18;
+      ctx.beginPath(); ctx.moveTo(cx + fc * 18, shoulderY); ctx.lineTo(cx + fc * (flung ? 520 : 28), shoulderY - (flung ? 16 : 6)); ctx.stroke();
     } else {
       ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
       ctx.beginPath(); ctx.arc(cx + fc * 24, shoulderY + 2, 9, 0, Math.PI * 2); ctx.fill(); ctx.restore();

@@ -75,6 +75,7 @@
   <div class="overlay hidden" id="selectScreen">
     <h2 id="selTitle">CHOOSE YOUR FIGHTER</h2>
     <div class="row" id="charRow"></div>
+    <div id="styleRow"></div>
     <button class="btn" id="btnBack">&larr; Back</button>
   </div>
 
@@ -207,6 +208,19 @@ const CHARS = [
   { name: 'Bramble', color: '#7a8b3a', style: 'Bruiser. Thorns reflect damage back to attackers.',
     walkSpeed: 170, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'thorns', specialName: 'BRAMBLE' },
+  // --- Premium characters (unlocked by buying with wins) ---
+  { name: 'Cowboy', color: '#c49a5a', style: 'Gunslinger. Fans the hammer for a burst of shots.',
+    walkSpeed: 205, jumpMul: 1.0, maxHp: 95, punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
+    special: 'sixshooter', specialName: 'SIX-SHOOTER', look: 'cowboy', premium: true, costOff: 50, costOn: 25 },
+  { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. A blinding flurry of blades.',
+    walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 5, punchRange: 34, kickDmg: 9, kickRange: 46,
+    special: 'bladeflurry', specialName: 'BLADE FLURRY', look: 'ninja', premium: true, costOff: 40, costOn: 20 },
+  { name: 'King', color: '#8e44ad', style: 'Royalty. Slams the ground with a royal quake.',
+    walkSpeed: 170, jumpMul: 0.9, maxHp: 118, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
+    special: 'royalslam', specialName: 'ROYAL SLAM', look: 'king', premium: true, costOff: 90, costOn: 45 },
+  { name: 'Cyber', color: '#00d0ff', style: 'Android. Overclocks for blazing attack speed.',
+    walkSpeed: 230, jumpMul: 1.1, maxHp: 96, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
+    special: 'overdrive', specialName: 'OVERDRIVE', look: 'cyber', premium: true, costOff: 60, costOn: 30 },
 ];
 
 // Normal attacks. Per-char damage/range overrides come from CHARS.
@@ -236,9 +250,13 @@ const SPECIALS = {
   venom:       { dur: 0.45, startup: 0.10 },
   slow:        { dur: 0.35, startup: 0.10 },
   thorns:      { dur: 0.30 },
+  sixshooter:  { dur: 0.55 },
+  bladeflurry: { dur: 0.60 },
+  royalslam:   { dur: 0.45, startup: 0.18 },
+  overdrive:   { dur: 0.40 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
-const ZONER_SPECIALS = new Set(['beam', 'javelin']);
+const ZONER_SPECIALS = new Set(['beam', 'javelin', 'sixshooter']);
 
 // =====================================================================
 // SMALL HELPERS
@@ -345,7 +363,7 @@ function makeFighter(spec) {
   return {
     charId: spec.charId, team: spec.team, isPlayer: !!spec.isPlayer, isCPU: !spec.isPlayer,
     controller: spec.controller || (spec.isPlayer ? 'local' : 'cpu'), // 'local' | 'remote' | 'cpu'
-    style: spec.style || 'none',
+    style: (ch && ch.look) || 'none', // premium characters wear a built-in look
     name: ch.name, color: ch.color,
     x: spec.x, y: GROUND_Y, vx: 0, vy: 0, facing: spec.facing, onGround: true,
     w: 34, h: 86,
@@ -355,7 +373,7 @@ function makeFighter(spec) {
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
-    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0,
+    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0, hasteTimer: 0, shotTick: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
   };
@@ -363,15 +381,14 @@ function makeFighter(spec) {
 function buildLineup(charId, is2v2) {
   const used = new Set([charId]);
   const pick = () => { let c; do { c = Math.floor(Math.random() * CHARS.length); } while (used.has(c)); used.add(c); return c; };
-  const myStyle = (myAccount && myAccount.style) || 'none';
   if (!is2v2) {
     return [
-      { charId, team: 0, isPlayer: true, x: 300, facing: 1, style: myStyle },
+      { charId, team: 0, isPlayer: true, x: 300, facing: 1 },
       { charId: pick(), team: 1, isPlayer: false, x: 600, facing: -1 },
     ];
   }
   return [
-    { charId, team: 0, isPlayer: true, x: 230, facing: 1, style: myStyle },
+    { charId, team: 0, isPlayer: true, x: 230, facing: 1 },
     { charId: pick(), team: 0, isPlayer: false, x: 360, facing: 1 },
     { charId: pick(), team: 1, isPlayer: false, x: 540, facing: -1 },
     { charId: pick(), team: 1, isPlayer: false, x: 670, facing: -1 },
@@ -431,6 +448,11 @@ function specialHitbox(f) {
     if (t < SPECIALS.venom.startup || t > SPECIALS.venom.startup + 0.12) return null;
     return box(ch.kickRange * 0.4, 34, 52, 40, 8,
       { hitstun: 0.3, knockbackVx: 120, knockbackVy: -100, chipMul: 0.2, meterOnHit: 4, meterOnBlock: 4, pushOnBlock: 100, sfx: 'special', poison: 4.0 });
+  }
+  if (name === 'bladeflurry') {
+    if (t < 0.1 || t > 0.55) return null;
+    return box(ch.kickRange * 0.4, 32, 54, 34, 5,
+      { hitstun: 0.14, knockbackVx: 80, knockbackVy: -40, chipMul: 0.3, meterOnHit: 2, meterOnBlock: 2, pushOnBlock: 60, sfx: 'hit' });
   }
   if (name === 'grab') {
     if (t < SPECIALS.grab.startup || t > SPECIALS.grab.startup + 0.12) return null;
@@ -548,10 +570,11 @@ function startSpecial(f) {
   const ch = CHARS[f.charId];
   f.state = 'special'; f.attackName = 'special'; f.specialName = ch.special;
   f.stateTimer = 0; f.hasHit = false; f.facingLocked = true; f.meter = 0;
-  f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false;
+  f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false; f.shotTick = 0;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
-  if (ch.special === 'lifesteal') { f.vx = f.facing * 240; }       // small lunge into the bite
+  if (ch.special === 'overdrive') { f.vx = 0; f.hasteTimer = 5.0; spawnParticles(f.x, f.y - 40, ch.color, 18, 3); }
+  else if (ch.special === 'lifesteal') { f.vx = f.facing * 240; }  // small lunge into the bite
   else if (ch.special === 'berserk') { f.vx = 0; f.buffTimer = 6.0; spawnParticles(f.x, f.y - 40, ch.color, 20, 3); }
   else if (ch.special === 'freeze') { f.vx = 0; doFreeze(f); }
   else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
@@ -683,9 +706,25 @@ function updateSpecial(f, dt) {
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'trap') {
     if (t >= sp.dur) endAttack(f);                        // rune already placed on activation
+  } else if (name === 'sixshooter') {
+    if (t >= f.shotTick * 0.12 && f.shotTick < 3) { spawnBullet(f); f.shotTick++; } // 3-shot burst
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'bladeflurry') {
+    if (t >= 0.1 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; }   // multi-hit barrage
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'royalslam') {
+    if (!f.shockDone && t >= sp.startup) { f.shockDone = true; spawnShock(f); state.shake = Math.max(state.shake, 10); }
+    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'overdrive') {
+    if (t >= sp.dur) endAttack(f);                        // haste applied on activation
   } else {
     if (t >= 0.5) endAttack(f);
   }
+}
+// Cowboy's Six-Shooter: a fast small bullet.
+function spawnBullet(f) {
+  state.projectiles.push({ x: f.x + f.facing * 28, y: f.y - 50, vx: f.facing * 760, dir: f.facing,
+    team: f.team, owner: f, damage: 7, life: 1.2, r: 5, color: '#ffe26b', kind: 'bullet' });
 }
 function updateProjectiles(dt) {
   for (const p of state.projectiles) {
@@ -775,7 +814,7 @@ function applyIntent(f, intent) {
   // Movement (not while blocking on the ground)
   if (!(intent.block && f.onGround)) {
     const dir = (intent.right ? 1 : 0) - (intent.left ? 1 : 0);
-    if (dir !== 0) { f.vx = dir * ch.walkSpeed * (f.buffTimer > 0 ? 1.4 : 1) * (f.slowTimer > 0 ? 0.5 : 1); if (f.onGround) f.state = 'walk'; }
+    if (dir !== 0) { f.vx = dir * ch.walkSpeed * (f.buffTimer > 0 ? 1.4 : 1) * (f.slowTimer > 0 ? 0.5 : 1) * (f.hasteTimer > 0 ? 1.3 : 1); if (f.onGround) f.state = 'walk'; }
     else if (f.onGround) { f.state = 'idle'; }
     if (intent.jump && f.onGround) { f.vy = JUMP_V * ch.jumpMul; f.onGround = false; f.state = 'jump'; sfx('jump'); }
   }
@@ -783,7 +822,11 @@ function applyIntent(f, intent) {
 }
 function updateFighter(f, dt) {
   if (f.slowTimer > 0) f.slowTimer -= dt;
-  const sdt = f.slowTimer > 0 ? dt * 0.5 : dt; // Time Warp: act at half speed
+  if (f.hasteTimer > 0) f.hasteTimer -= dt;
+  let spdMul = 1;
+  if (f.slowTimer > 0) spdMul *= 0.5;   // Time Warp: act at half speed
+  if (f.hasteTimer > 0) spdMul *= 1.7;  // Overdrive: act faster
+  const sdt = dt * spdMul;
   f.stateTimer += sdt;
   f.invuln = Math.max(0, f.invuln - dt);
   f.hitFlash = Math.max(0, f.hitFlash - dt);
@@ -1391,11 +1434,18 @@ function showSelect(is2v2) {
   hideOverlays();
   document.getElementById('selTitle').textContent = is2v2 ? 'CHOOSE YOUR FIGHTER (2v2)' : 'CHOOSE YOUR FIGHTER';
   document.getElementById('selectScreen').classList.remove('hidden');
+  buildCharRow(); // refresh in case characters were just bought/unlocked
+  const sr = document.getElementById('styleRow');
+  if (sr) sr.innerHTML = myAccount
+    ? '<p class="small" style="margin-top:6px">Buy more fighters in Account &rarr; 🛒 Shop.</p>'
+    : '<p class="small" style="margin-top:6px">Log into an Account to buy &amp; play premium fighters.</p>';
 }
+function charUnlocked(i) { return !CHARS[i].premium || (myAccount && myAccount.ownedChars.indexOf(i) >= 0); }
 function buildCharRow() {
   const row = document.getElementById('charRow');
   row.innerHTML = '';
   CHARS.forEach((ch, i) => {
+    if (!charUnlocked(i)) return; // premium characters appear only once bought
     const b = document.createElement('div');
     b.className = 'charBtn';
     b.innerHTML =
@@ -1652,6 +1702,7 @@ function onlinePickChar(i) {
 function onlineCharGridHTML() {
   let grid = '<div class="row" style="max-width:780px;gap:5px;">';
   for (let i = 0; i < CHARS.length; i++) {
+    if (!charUnlocked(i)) continue; // only free + owned premium characters
     const c = CHARS[i], sel = (i === net.localChar);
     grid += '<button class="btn" style="font-size:12px;padding:6px 9px;' +
       (sel ? 'background:' + c.color + ';color:#111;border-color:#fff;' : 'border-color:' + c.color + ';') +
@@ -1670,10 +1721,8 @@ function teardownNet() {
 function makeOnlineLineup() {
   const a = (net.localChar != null) ? net.localChar : 0;   // host's pick (team 0)
   const b = (net.remoteChar != null) ? net.remoteChar : 0; // guest's pick (team 1)
-  const sA = (myAccount && myAccount.style) || 'none';     // host's style
-  const sB = net.remoteStyle || 'none';                    // guest's style
-  return [ { charId: a, team: 0, controller: 'local',  x: 300, facing: 1, style: sA },
-           { charId: b, team: 1, controller: 'remote', x: 600, facing: -1, style: sB } ];
+  return [ { charId: a, team: 0, controller: 'local',  x: 300, facing: 1 },
+           { charId: b, team: 1, controller: 'remote', x: 600, facing: -1 } ];
 }
 function setupOnlineRound(lineup) {
   state.lineup = lineup;
@@ -1819,23 +1868,12 @@ function renderOnlineUI() {
 // ACCOUNTS — username profiles with stats, shared via JSONBlob
 // =====================================================================
 const ACC_URL = 'https://jsonblob.com/api/jsonBlob/019ed1a7-96df-722f-8a69-805c4a616606';
-// Cosmetic styles you buy with wins (wins are the currency).
-const STYLES = [
-  { id: 'none',   name: 'Default', costOff: 0,  costOn: 0  },
-  { id: 'cowboy', name: 'Cowboy',  costOff: 50, costOn: 25 },
-  { id: 'ninja',  name: 'Ninja',   costOff: 40, costOn: 20 },
-  { id: 'king',   name: 'King',    costOff: 90, costOn: 45 },
-  { id: 'cyber',  name: 'Cyber',   costOff: 60, costOn: 30 },
-];
-function styleById(id) { return STYLES.find(s => s.id === id) || STYLES[0]; }
 function normalizeAccount(a) {
   if (!a) return a;
   if (a.dmg == null) a.dmg = 0; if (a.onWins == null) a.onWins = 0; if (a.offWins == null) a.offWins = 0;
   if (a.onKills == null) a.onKills = 0; if (a.offKills == null) a.offKills = 0;
   if (!a.charUses) a.charUses = {};
-  if (!Array.isArray(a.styles)) a.styles = ['none'];
-  if (a.styles.indexOf('none') < 0) a.styles.unshift('none');
-  if (!a.style) a.style = 'none';
+  if (!Array.isArray(a.ownedChars)) a.ownedChars = [];
   return a;
 }
 let myAccount = (function () { try { const s = localStorage.getItem('brawl_account'); return s ? normalizeAccount(JSON.parse(s)) : null; } catch (e) { return null; } })();
@@ -1843,7 +1881,7 @@ let allAccounts = {};
 let matchTeamStats = { 0: { dmg: 0, kills: 0 }, 1: { dmg: 0, kills: 0 } };
 let accView = { phase: 'menu', viewing: null, names: [] };
 
-function blankStats(name) { return { name: name, dmg: 0, onWins: 0, offWins: 0, onKills: 0, offKills: 0, charUses: {}, styles: ['none'], style: 'none' }; }
+function blankStats(name) { return { name: name, dmg: 0, onWins: 0, offWins: 0, onKills: 0, offKills: 0, charUses: {}, ownedChars: [] }; }
 function loadLocalAccounts() { try { return JSON.parse(localStorage.getItem('brawl_accounts') || '{}'); } catch (e) { return {}; } }
 function persistLocal() {
   try {
@@ -1917,25 +1955,23 @@ function renderAccount() {
         '<button class="btn" onclick="showTitle()">Back</button>';
     }
   } else if (accView.phase === 'shop') {
-    h = '<h2>🛒 Style Shop</h2>' +
+    h = '<h2>🛒 Character Shop</h2>' +
       '<p class="small">Wins are the currency. You have <b>' + (myAccount.offWins || 0) + '</b> offline wins &middot; <b>' + (myAccount.onWins || 0) + '</b> online wins.</p>' +
-      '<div class="row" style="flex-direction:column;align-items:center;gap:6px;max-height:300px;overflow:auto;">';
-    STYLES.forEach(s => {
-      if (s.id === 'none') return;
-      const owned = myAccount.styles.indexOf(s.id) >= 0;
-      const equipped = myAccount.style === s.id;
+      '<div class="row" style="flex-direction:column;align-items:center;gap:6px;max-height:280px;overflow:auto;">';
+    CHARS.forEach((c, idx) => {
+      if (!c.premium) return;
+      const owned = myAccount.ownedChars.indexOf(idx) >= 0;
       let right;
-      if (equipped) right = '<span style="color:#6f6">Equipped</span>';
-      else if (owned) right = '<button class="btn" style="font-size:13px;padding:5px 12px" onclick="equipStyle(\'' + s.id + '\')">Equip</button>';
-      else right = '<button class="btn" style="font-size:12px;padding:5px 9px" onclick="buyStyle(\'' + s.id + '\',\'off\')">' + s.costOff + ' off-wins</button>' +
-                   '<button class="btn" style="font-size:12px;padding:5px 9px" onclick="buyStyle(\'' + s.id + '\',\'on\')">' + s.costOn + ' on-wins</button>';
-      h += '<div class="row" style="width:420px;justify-content:space-between;align-items:center;background:#181d2c;border-radius:8px;padding:6px 12px;">' +
-        '<b>' + s.name + '</b><span class="row" style="gap:6px">' + right + '</span></div>';
+      if (owned) right = '<span style="color:#6f6">Owned</span>';
+      else right = '<button class="btn" style="font-size:12px;padding:5px 9px" onclick="buyChar(' + idx + ',\'off\')">' + c.costOff + ' off-wins</button>' +
+                   '<button class="btn" style="font-size:12px;padding:5px 9px" onclick="buyChar(' + idx + ',\'on\')">' + c.costOn + ' on-wins</button>';
+      h += '<div class="row" style="width:460px;justify-content:space-between;align-items:center;background:#181d2c;border-radius:8px;padding:6px 12px;">' +
+        '<span><b style="color:' + c.color + '">' + c.name + '</b> <span class="small">★ ' + c.specialName + '</span></span>' +
+        '<span class="row" style="gap:6px">' + right + '</span></div>';
     });
     h += '</div>' +
       '<div class="row" style="margin-top:8px;"><input id="adminCode" placeholder="admin code" style="font-family:inherit;font-size:15px;width:150px;text-align:center;padding:6px;border-radius:8px;border:2px solid #55607f;background:#1a1f2e;color:#fff;"><button class="btn" onclick="adminUnlock()">Enter</button></div>' +
       (accView.error ? '<p style="color:#fc8">' + accView.error + '</p>' : '') +
-      '<button class="btn" onclick="equipStyle(\'none\')">No Style</button>' +
       '<button class="btn" onclick="backToAccountMenu()">Back</button>';
   } else if (accView.phase === 'list') {
     accView.names = Object.keys(allAccounts).filter(n => n[0] !== '_').sort();
@@ -1977,31 +2013,26 @@ function viewAccountIdx(i) { accView.viewing = accView.names[i]; accView.phase =
 function backToAccountMenu() { accView.phase = 'menu'; accView.error = ''; renderAccount(); }
 function logoutAccount() { myAccount = null; try { localStorage.removeItem('brawl_account'); } catch (e) {} accView.phase = 'menu'; renderAccount(); }
 function openShop() { if (!myAccount) return; accView.phase = 'shop'; accView.error = ''; renderAccount(); }
-function buyStyle(id, cur) {
+function buyChar(idx, cur) {
   if (!myAccount) return;
-  const s = styleById(id);
-  if (myAccount.styles.indexOf(id) >= 0) { equipStyle(id); return; }
-  const cost = (cur === 'off') ? s.costOff : s.costOn;
+  const c = CHARS[idx];
+  if (!c || !c.premium) return;
+  if (myAccount.ownedChars.indexOf(idx) >= 0) return;
+  const cost = (cur === 'off') ? c.costOff : c.costOn;
   const have = (cur === 'off') ? (myAccount.offWins || 0) : (myAccount.onWins || 0);
   if (have < cost) { accView.error = 'Not enough ' + (cur === 'off' ? 'offline' : 'online') + ' wins (need ' + cost + ').'; renderAccount(); return; }
   if (cur === 'off') myAccount.offWins -= cost; else myAccount.onWins -= cost;
-  myAccount.styles.push(id);
-  myAccount.style = id; // auto-equip the new style
+  myAccount.ownedChars.push(idx);
   persistLocal(); pushAccount();
-  accView.error = ''; renderAccount();
-}
-function equipStyle(id) {
-  if (!myAccount) return;
-  if (id !== 'none' && myAccount.styles.indexOf(id) < 0) return; // must own it
-  myAccount.style = id; persistLocal(); pushAccount(); accView.error = ''; renderAccount();
+  accView.error = 'Unlocked ' + c.name + '! Pick them on the character-select screen.'; renderAccount();
 }
 function adminUnlock() {
   if (!myAccount) return;
   const code = (accFieldVal('adminCode') || '').trim().toLowerCase();
   if (code !== 'admin') { accView.error = 'Wrong admin code.'; renderAccount(); return; }
-  STYLES.forEach(s => { if (myAccount.styles.indexOf(s.id) < 0) myAccount.styles.push(s.id); });
+  CHARS.forEach((c, idx) => { if (c.premium && myAccount.ownedChars.indexOf(idx) < 0) myAccount.ownedChars.push(idx); });
   persistLocal(); pushAccount();
-  accView.error = 'Admin unlocked — all styles are yours!'; renderAccount();
+  accView.error = 'Admin unlocked — all characters are yours!'; renderAccount();
 }
 
 buildCharRow();

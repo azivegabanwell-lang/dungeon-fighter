@@ -212,9 +212,9 @@ const CHARS = [
   { name: 'Cowboy', color: '#c49a5a', style: 'Gunslinger. Lassos you airborne, then shoots — 38 dmg.',
     walkSpeed: 205, jumpMul: 1.0, maxHp: 95, punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
     special: 'lasso', specialName: 'LASSO SHOT', look: 'cowboy', premium: true, costOff: 50, costOn: 25 },
-  { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. Blinks behind and slashes 5 times (12 each).',
-    walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 5, punchRange: 34, kickDmg: 9, kickRange: 46,
-    special: 'shadowslash', specialName: 'SHADOW SLASH', look: 'ninja', premium: true, costOff: 40, costOn: 20 },
+  { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. Slashes with a sword; blinks behind for 5 slashes.',
+    walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 7, punchRange: 52, kickDmg: 9, kickRange: 46,
+    special: 'shadowslash', specialName: 'SHADOW SLASH', look: 'ninja', premium: true, costOff: 40, costOn: 20, sword: true },
   { name: 'King', color: '#8e44ad', style: 'Royalty. Slams the ground with a royal quake.',
     walkSpeed: 170, jumpMul: 0.9, maxHp: 118, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'royalslam', specialName: 'ROYAL SLAM', look: 'king', premium: true, costOff: 90, costOn: 45 },
@@ -1133,7 +1133,13 @@ function drawFighter(f) {
   if (f.attackName === 'punch') {
     const e = attackExt(f, 'punch');
     drawLimb(cx - fc * 6, shoulderY + 2, cx - fc * 9, shoulderY + 13, col, skin, 5);    // rear guard
-    drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6);  // punch
+    if (CHARS[f.charId].sword) {                                                         // sword slash instead of a fist
+      drawLimb(cx + fc * 6, shoulderY, cx + fc * 14, shoulderY + 1, col, skin, 5);       // arm
+      ctx.strokeStyle = '#e6eef7'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx + fc * 14, shoulderY + 1); ctx.lineTo(cx + fc * (26 + e), shoulderY - 4); ctx.stroke(); // blade
+    } else {
+      drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6); // punch
+    }
   } else if (f.attackName === 'special') {
     drawLimb(cx + fc * 5, shoulderY, cx + fc * 18, shoulderY - 3, col, skin, 6);
     drawLimb(cx + fc * 5, shoulderY + 4, cx + fc * 17, shoulderY + 8, col, skin, 6);

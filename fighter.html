@@ -221,6 +221,9 @@ const CHARS = [
   { name: 'Cyber', color: '#00d0ff', style: 'Android. Machine-gun arm: 10 bullets, 4 dmg each.',
     walkSpeed: 230, jumpMul: 1.1, maxHp: 96, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
     special: 'machinegun', specialName: 'MACHINE GUN', look: 'cyber', premium: true, costOff: 60, costOn: 30 },
+  { name: 'Elemental', color: '#a64dff', style: 'Mage. RANDOM cataclysm: quake / tsunami / eruption / lightning.',
+    walkSpeed: 200, jumpMul: 1.0, maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
+    special: 'elemental', specialName: 'CATACLYSM' },
 ];
 
 // Normal attacks. Per-char damage/range overrides come from CHARS.
@@ -254,6 +257,7 @@ const SPECIALS = {
   shadowslash: { dur: 0.70, startup: 0.10 },
   summon:      { dur: 0.50 },
   machinegun:  { dur: 1.00 },
+  elemental:   { dur: 0.60 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
 const ZONER_SPECIALS = new Set(['beam', 'javelin', 'machinegun']);
@@ -348,7 +352,7 @@ function freshState() {
     is2v2: false,
     lineup: [],              // [{charId, team, isPlayer, x, facing}]
     fighters: [],
-    projectiles: [], shockwaves: [], traps: [], particles: [], floatTexts: [],
+    projectiles: [], shockwaves: [], traps: [], particles: [], floatTexts: [], fx: [],
     roundTime: ROUND_TIME, roundNum: 1, teamRounds: [0, 0],
     banner: '', roundOverTimer: 0, lastWinner: -1,
     shake: 0, hitstop: 0,
@@ -400,7 +404,7 @@ function buildLineup(charId, is2v2) {
 }
 function setupRound() {
   state.fighters = state.lineup.map(makeFighter);
-  state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = [];
+  state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = []; state.fx = [];
   state.roundTime = ROUND_TIME; state.hitstop = 0; state.shake = 0;
 }
 function startMatch(charId, is2v2) {
@@ -588,6 +592,7 @@ function startSpecial(f) {
   else if (ch.special === 'shadowslash') { f.vx = 0; f.invuln = 0.4; doBlink(f); } // blink behind, then slash
   else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
   else if (ch.special === 'summon') { f.vx = 0; summonGuards(f); } // call in 2 guards
+  else if (ch.special === 'elemental') { f.vx = 0; doElemental(f); } // random cataclysm
   else if (ch.special === 'shield') { f.vx = 0; f.shieldTimer = 1.2; f.invuln = 1.2; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
   else if (ch.special === 'repel') { f.vx = 0; doRepel(f); }
   else if (ch.special === 'venom') { f.vx = f.facing * 200; }      // small step into the venom strike
@@ -697,6 +702,69 @@ function summonGuards(king) {
     spawnParticles(x, GROUND_Y - 40, '#9aa3b0', 12, 3);
   }
   sfx('special'); state.shake = Math.max(state.shake, 5);
+}
+// Elemental's Cataclysm — a random elemental disaster.
+function addFx(kind, x) {
+  const max = kind === 'tsunami' ? 0.8 : (kind === 'quake' ? 0.7 : 0.45);
+  state.fx.push({ kind: kind, x: x, life: max, max: max });
+}
+function doElemental(f) {
+  const r = Math.random();
+  const opp = nearestOpponent(f);
+  sfx('special'); state.shake = Math.max(state.shake, 10);
+  if (r < 0.10) {                                   // 10% Earthquake — hole, instant kill
+    if (opp && opp.invuln <= 0 && opp.state !== 'ko') {
+      opp.hp = 0; startKO(opp); addFx('quake', opp.x);
+      floatText(opp.x, opp.y - 96, 'EARTHQUAKE!', '#b58a55');
+    }
+    state.shake = Math.max(state.shake, 16);
+  } else if (r < 0.60) {                             // 50% Tsunami — 20 to ALL opponents
+    addFx('tsunami', f.x);
+    for (const o of state.fighters) {
+      if (o.team === f.team || o.state === 'ko' || o.invuln > 0) continue;
+      applyHit(f, o, { dmg: 20, move: { hitstun: 0.4, knockbackVx: (o.x < f.x ? -240 : 240), knockbackVy: -160, chipMul: 0.5, meterOnHit: 0, meterOnBlock: 0, sfx: 'special' } });
+    }
+    floatText(f.x, f.y - 96, 'TSUNAMI!', '#5ab6ff');
+  } else if (r < 0.80) {                             // 20% Eruption — flame burst under nearest, 25 + launch
+    if (opp && opp.invuln <= 0 && opp.state !== 'ko') {
+      addFx('eruption', opp.x);
+      applyHit(f, opp, { dmg: 25, move: { hitstun: 0.5, knockbackVx: 0, knockbackVy: -420, chipMul: 0.5, meterOnHit: 0, meterOnBlock: 0, sfx: 'special' } });
+      floatText(opp.x, opp.y - 96, 'ERUPTION!', '#ff6a00');
+    }
+  } else {                                          // 20% Lightning — 30 to nearest
+    if (opp && opp.invuln <= 0 && opp.state !== 'ko') {
+      addFx('lightning', opp.x);
+      applyHit(f, opp, { dmg: 30, move: { hitstun: 0.5, knockbackVx: 0, knockbackVy: -220, chipMul: 0.5, meterOnHit: 0, meterOnBlock: 0, sfx: 'special' } });
+      floatText(opp.x, opp.y - 96, 'LIGHTNING!', '#ffe14a');
+    }
+  }
+}
+function updateFx(dt) { state.fx = state.fx.filter(e => (e.life -= dt) > 0); }
+function drawFx() {
+  for (const e of state.fx) {
+    const a = Math.max(0, e.life / e.max);
+    ctx.save();
+    if (e.kind === 'lightning') {
+      ctx.globalAlpha = a; ctx.strokeStyle = '#fff84a'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.shadowColor = '#ffec6b'; ctx.shadowBlur = 16;
+      ctx.beginPath(); let y = 0, x = e.x; ctx.moveTo(x, y);
+      while (y < GROUND_Y - 20) { y += 28; x = e.x + (Math.random() * 40 - 20); ctx.lineTo(x, y); }
+      ctx.stroke();
+    } else if (e.kind === 'eruption') {
+      ctx.globalAlpha = a * 0.9;
+      const cols = ['#ff3a00', '#ff8a00', '#ffd24a'];
+      for (let i = 0; i < 3; i++) { ctx.fillStyle = cols[i]; ctx.beginPath(); ctx.ellipse(e.x, GROUND_Y - 55 + i * 12, 30 - i * 8, 75 - i * 18, 0, 0, Math.PI * 2); ctx.fill(); }
+    } else if (e.kind === 'tsunami') {
+      ctx.globalAlpha = a * 0.6; const prog = 1 - a; const wx = -120 + prog * (W + 240);
+      ctx.fillStyle = '#2a78d8';
+      ctx.beginPath(); ctx.moveTo(wx - 120, GROUND_Y); ctx.quadraticCurveTo(wx - 40, GROUND_Y - 170, wx, GROUND_Y - 70); ctx.quadraticCurveTo(wx + 30, GROUND_Y - 10, wx + 70, GROUND_Y); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#7fc4ff'; ctx.globalAlpha = a * 0.4; ctx.beginPath(); ctx.ellipse(wx - 30, GROUND_Y - 95, 40, 55, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (e.kind === 'quake') {
+      ctx.globalAlpha = a; ctx.fillStyle = '#08050a';
+      ctx.beginPath(); ctx.ellipse(e.x, GROUND_Y, 32, 13, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 function minionIntent(f) {
   const intent = { left: false, right: false, jump: false, block: false, punch: false, kick: false, special: false };
@@ -1446,7 +1514,7 @@ function draw() {
   if (state.fighters.length) {
     for (const f of state.fighters) drawFighter(f);
     for (const f of state.fighters) if ((net && net.active) ? f.team === net.myTeam : f.isPlayer) drawMarker(f);
-    drawBeams(); drawShockwaves(); drawProjectiles(); drawParticles(); drawFloatTexts();
+    drawBeams(); drawFx(); drawShockwaves(); drawProjectiles(); drawParticles(); drawFloatTexts();
   }
   ctx.restore();
   if (state.mode === 'fight' || state.mode === 'roundOver' || state.mode === 'paused') drawHUD();
@@ -1480,7 +1548,7 @@ function update(dt) {
   if (state.mode === 'paused') { clearJustPressed(); mouseClicked = false; return; }
 
   if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 30);
-  updateParticles(dt); updateFloatTexts(dt);
+  updateParticles(dt); updateFloatTexts(dt); updateFx(dt);
   mouseClicked = false;
 
   if (state.mode === 'roundOver') {
@@ -1836,7 +1904,7 @@ function makeOnlineLineup() {
 function setupOnlineRound(lineup) {
   state.lineup = lineup;
   state.fighters = lineup.map(makeFighter);
-  state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = [];
+  state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = []; state.fx = [];
   state.countdown = 3.4; state.roundTime = ROUND_TIME; state.banner = ''; state.online_over = false;
   state.mode = 'fight';
   net.active = true; net.localReady = false; net.remoteReady = false;
@@ -1854,7 +1922,7 @@ function updateOnlineHost(dt) {
     for (const f of state.fighters) f.bobPhase += dt * 4;
   } else {
     state.roundTime -= dt;
-    updateParticles(dt); updateFloatTexts(dt);
+    updateParticles(dt); updateFloatTexts(dt); updateFx(dt);
     for (const f of state.fighters) updateFighter(f, dt);
     cullMinions();
     resolveCombat();
@@ -1906,6 +1974,7 @@ function serializeSnapshot() {
     shockwaves: state.shockwaves.map(s => ({ x: s.x, r: s.r, life: s.life, color: s.color })),
     traps: state.traps.map(t => ({ x: t.x, arm: t.arm, color: t.color })),
     floatTexts: state.floatTexts.map(t => ({ x: t.x, y: t.y, text: t.text, color: t.color, life: t.life, maxLife: t.maxLife })),
+    fx: state.fx.map(e => ({ kind: e.kind, x: e.x, life: e.life, max: e.max })),
   };
 }
 function applySnapshot(s) {
@@ -1923,6 +1992,7 @@ function applySnapshot(s) {
   state.shockwaves = s.shockwaves.map(w => ({ x: w.x, y: GROUND_Y, r: w.r, maxR: w.r, life: w.life, color: w.color }));
   state.traps = s.traps.map(t => ({ x: t.x, y: GROUND_Y, arm: t.arm, color: t.color, life: 1 }));
   state.floatTexts = s.floatTexts.map(t => ({ x: t.x, y: t.y, text: t.text, color: t.color, life: t.life, maxLife: t.maxLife }));
+  state.fx = s.fx ? s.fx.map(e => ({ kind: e.kind, x: e.x, life: e.life, max: e.max })) : [];
   state.mode = 'fight';
   if (s.phase === 'over' && net.phase === 'fight') { net.phase = 'rematch'; net.localReady = false; net.remoteReady = false; renderOnlineUI(); }
   if (s.phase !== 'over' && net.phase === 'rematch') { net.phase = 'fight'; renderOnlineUI(); }

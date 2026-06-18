@@ -215,9 +215,9 @@ const CHARS = [
   { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. Slashes with a sword; blinks behind for 5 slashes.',
     walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 7, punchRange: 52, kickDmg: 9, kickRange: 46,
     special: 'shadowslash', specialName: 'SHADOW SLASH', look: 'ninja', premium: true, costOff: 40, costOn: 20, sword: true },
-  { name: 'King', color: '#8e44ad', style: 'Royalty. Slams the ground with a royal quake.',
+  { name: 'King', color: '#8e44ad', style: 'Royalty. Summons 2 guards to fight for him.',
     walkSpeed: 170, jumpMul: 0.9, maxHp: 118, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
-    special: 'royalslam', specialName: 'ROYAL SLAM', look: 'king', premium: true, costOff: 90, costOn: 45 },
+    special: 'summon', specialName: 'SUMMON GUARDS', look: 'king', premium: true, costOff: 90, costOn: 45 },
   { name: 'Cyber', color: '#00d0ff', style: 'Android. Machine-gun arm: 10 bullets, 4 dmg each.',
     walkSpeed: 230, jumpMul: 1.1, maxHp: 96, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
     special: 'machinegun', specialName: 'MACHINE GUN', look: 'cyber', premium: true, costOff: 60, costOn: 30 },
@@ -252,7 +252,7 @@ const SPECIALS = {
   thorns:      { dur: 0.30 },
   lasso:       { dur: 0.70, startup: 0.12 },
   shadowslash: { dur: 0.70, startup: 0.10 },
-  royalslam:   { dur: 0.45, startup: 0.18 },
+  summon:      { dur: 0.50 },
   machinegun:  { dur: 1.00 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
@@ -279,7 +279,10 @@ function nearestOpponent(f) {
   return best;
 }
 function teamHp(fighters, team) {
-  return fighters.filter(f => f.team === team).reduce((s, f) => s + f.hp, 0);
+  return fighters.filter(f => f.team === team && !f.isMinion).reduce((s, f) => s + f.hp, 0);
+}
+function cullMinions() { // remove expired or dead guards
+  state.fighters = state.fighters.filter(f => !(f.isMinion && (f.life <= 0 || (f.state === 'ko' && f.stateTimer > 1.5))));
 }
 function teamName(team) {
   const ns = state.fighters.filter(f => f.team === team).map(f => f.name);
@@ -421,7 +424,9 @@ function computeHitbox(f) {
   if (f.stateTimer < m.startup || f.stateTimer > m.startup + m.active) return null;
   const ch = CHARS[f.charId];
   const range = f.attackName === 'punch' ? ch.punchRange : ch.kickRange;
-  const dmg = (f.attackName === 'punch' ? ch.punchDmg : ch.kickDmg) * (f.buffTimer > 0 ? 1.6 : 1);
+  let baseDmg = f.attackName === 'punch' ? ch.punchDmg : ch.kickDmg;
+  if (f.isMinion) baseDmg = 5; // summoned guards hit for 5
+  const dmg = baseDmg * (f.buffTimer > 0 ? 1.6 : 1);
   const front = f.x + f.facing * (f.w / 2);
   const w = m.boxW + range;
   const bx = f.facing > 0 ? front : front - w;
@@ -582,6 +587,7 @@ function startSpecial(f) {
   else if (ch.special === 'teleport') { f.invuln = 0.4; f.vx = 0; } // i-frames through the blink
   else if (ch.special === 'shadowslash') { f.vx = 0; f.invuln = 0.4; doBlink(f); } // blink behind, then slash
   else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
+  else if (ch.special === 'summon') { f.vx = 0; summonGuards(f); } // call in 2 guards
   else if (ch.special === 'shield') { f.vx = 0; f.shieldTimer = 1.2; f.invuln = 1.2; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
   else if (ch.special === 'repel') { f.vx = 0; doRepel(f); }
   else if (ch.special === 'venom') { f.vx = f.facing * 200; }      // small step into the venom strike
@@ -675,6 +681,34 @@ function spawnShock(f) {
     team: f.team, owner: f, life: 0.5, color: CHARS[f.charId].color, hitSet: new Set(),
   });
 }
+// King's summon: temporary guards on his team that only punch (5 dmg), have 100 HP, last 20s.
+function makeMinion(king, x) {
+  const m = makeFighter({ charId: king.charId, team: king.team, x: x, facing: king.facing });
+  m.isMinion = true; m.controller = 'minion';
+  m.color = '#9aa3b0'; m.style = 'none'; m.name = 'Guard';
+  m.maxHp = 100; m.hp = 100; m.life = 20.0;
+  return m;
+}
+function summonGuards(king) {
+  const existing = state.fighters.filter(f => f.isMinion && f.team === king.team && f.state !== 'ko').length;
+  for (let i = 0; i < Math.max(0, 2 - existing); i++) {
+    const x = clamp(king.x + king.facing * (40 + i * 36), WALL_L, WALL_R);
+    state.fighters.push(makeMinion(king, x));
+    spawnParticles(x, GROUND_Y - 40, '#9aa3b0', 12, 3);
+  }
+  sfx('special'); state.shake = Math.max(state.shake, 5);
+}
+function minionIntent(f) {
+  const intent = { left: false, right: false, jump: false, block: false, punch: false, kick: false, special: false };
+  const opp = nearestOpponent(f);
+  if (!opp) return intent;
+  const dx = opp.x - f.x, dist = Math.abs(dx);
+  const reach = CHARS[f.charId].punchRange + f.w;
+  if (f.ai.attackCooldown > 0) f.ai.attackCooldown -= lastDt;
+  if (dist > reach) { if (dx > 0) intent.right = true; else intent.left = true; }
+  else if (f.ai.attackCooldown <= 0) { intent.punch = true; f.ai.attackCooldown = 0.5 + Math.random() * 0.4; }
+  return intent;
+}
 function endAttack(f) {
   f.state = 'idle'; f.attackName = null; f.specialName = null;
   f.hasHit = false; f.facingLocked = false;
@@ -724,9 +758,8 @@ function updateSpecial(f, dt) {
   } else if (name === 'shadowslash') {
     if (t >= 0.1 && f.flurryTick <= 5 && t >= f.flurryTick * 0.1) { f.hasHit = false; f.flurryTick++; } // 5 slashes
     if (t >= sp.dur) endAttack(f);
-  } else if (name === 'royalslam') {
-    if (!f.shockDone && t >= sp.startup) { f.shockDone = true; spawnShock(f); state.shake = Math.max(state.shake, 10); }
-    if (t >= sp.dur) endAttack(f);
+  } else if (name === 'summon') {
+    if (t >= sp.dur) endAttack(f); // guards spawned on activation
   } else if (name === 'machinegun') {
     if (t >= f.shotTick * 0.07 && f.shotTick < 10) { spawnGunBullet(f); f.shotTick++; sfx('hit'); } // 10 bullets
     if (t >= sp.dur) endAttack(f);
@@ -878,6 +911,7 @@ function updateFighter(f, dt) {
   if (f.shieldTimer > 0) f.shieldTimer -= dt;
   if (f.thornsTimer > 0) f.thornsTimer -= dt;
   if (f.kickCooldown > 0) f.kickCooldown -= dt;
+  if (f.isMinion) f.life -= dt; // summoned guards expire
   if (f.poisonTimer > 0) {
     f.poisonTimer -= dt; f.poisonTick -= dt;
     if (f.poisonTick <= 0) {
@@ -903,6 +937,7 @@ function updateFighter(f, dt) {
     let intent;
     if (f.controller === 'local') intent = humanIntent();
     else if (f.controller === 'remote') intent = (net && net.remoteInput) ? net.remoteInput : NO_INTENT;
+    else if (f.controller === 'minion') intent = minionIntent(f);
     else intent = cpuIntent(f, dt);
     applyIntent(f, intent);
   }
@@ -975,8 +1010,8 @@ function updateAI(f, dt) {
 // ROUND / MATCH FLOW
 // =====================================================================
 function checkRoundOver(fighters) {
-  const a0 = fighters.some(f => f.team === 0 && f.state !== 'ko');
-  const a1 = fighters.some(f => f.team === 1 && f.state !== 'ko');
+  const a0 = fighters.some(f => f.team === 0 && f.state !== 'ko' && !f.isMinion);
+  const a1 = fighters.some(f => f.team === 1 && f.state !== 'ko' && !f.isMinion);
   if (!a0 && !a1) return 'draw';
   if (!a0) return 1;
   if (!a1) return 0;
@@ -1226,6 +1261,12 @@ function drawFighter(f) {
     ctx.globalAlpha = 0.7; ctx.strokeStyle = '#dff3ff'; ctx.lineWidth = 3; ctx.stroke();
     ctx.restore();
   }
+  // ---- summoned guard: HP bar above head ----
+  if (f.isMinion && f.state !== 'ko') {
+    const bw = 28, bx = f.x - bw / 2, by = f.y - 98;
+    ctx.fillStyle = '#300'; ctx.fillRect(bx, by, bw, 4);
+    ctx.fillStyle = '#6f6'; ctx.fillRect(bx, by, bw * Math.max(0, f.hp / f.maxHp), 4);
+  }
 }
 function drawMarker(f) {
   const x = f.x, y = f.y - (f.state === 'ko' ? 0 : 96);
@@ -1361,8 +1402,8 @@ function drawPips(team, cx, cy, right) {
   }
 }
 function drawHUD() {
-  const t0 = state.fighters.filter(f => f.team === 0);
-  const t1 = state.fighters.filter(f => f.team === 1);
+  const t0 = state.fighters.filter(f => f.team === 0 && !f.isMinion);
+  const t1 = state.fighters.filter(f => f.team === 1 && !f.isMinion);
   drawSideHud(t0, 'left'); drawSideHud(t1, 'right');
   // timer
   ctx.fillStyle = '#fff'; ctx.font = 'bold 28px Courier New'; ctx.textAlign = 'center';
@@ -1452,6 +1493,7 @@ function update(dt) {
 
   state.roundTime -= dt;
   for (const f of state.fighters) updateFighter(f, dt);
+  cullMinions();
   resolveCombat();
   updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
 
@@ -1814,6 +1856,7 @@ function updateOnlineHost(dt) {
     state.roundTime -= dt;
     updateParticles(dt); updateFloatTexts(dt);
     for (const f of state.fighters) updateFighter(f, dt);
+    cullMinions();
     resolveCombat();
     updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
     const r = checkRoundOver(state.fighters);
@@ -1854,7 +1897,7 @@ function serializeSnapshot() {
     phase: state.online_over ? 'over' : (state.countdown > 0 ? 'count' : 'fight'),
     countdown: state.countdown, roundTime: state.roundTime, banner: state.banner,
     teamRounds: state.teamRounds.slice(), matchWon: state.online_matchWon,
-    fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing, style: f.style,
+    fighters: state.fighters.map(f => ({ charId: f.charId, team: f.team, x: f.x, y: f.y, facing: f.facing, style: f.style, isMinion: f.isMinion, color: f.color,
       state: f.state, attackName: f.attackName, specialName: f.specialName, stateTimer: f.stateTimer,
       hp: f.hp, maxHp: f.maxHp, meter: f.meter, onGround: f.onGround, hitFlash: f.hitFlash, recoil: f.recoil,
       walkPhase: f.walkPhase, bobPhase: f.bobPhase, countering: f.countering, buffTimer: f.buffTimer, frozen: f.frozen,

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bandana — Tower Climb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #0c0f16; overflow: hidden; font-family: 'Trebuchet MS', system-ui, sans-serif; }
+  #wrap { display: flex; align-items: center; justify-content: center; height: 100%; }
+  #stage { position: relative; width: 900px; max-width: 100vw; }
+  canvas { display: block; width: 100%; background: #1a2233; border-radius: 10px; box-shadow: 0 14px 50px rgba(0,0,0,.6); }
+  .overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; color: #fff; background: rgba(10,13,20,.84); border-radius: 10px; padding: 24px;
+  }
+  .overlay.hidden { display: none; }
+  h1 { font-size: 46px; letter-spacing: 2px; margin-bottom: 4px; color: #ff4d4d; text-shadow: 0 3px 0 #7a1414; }
+  h2 { font-size: 32px; margin-bottom: 10px; }
+  p { font-size: 16px; opacity: .92; margin: 4px 0; line-height: 1.5; }
+  .keys { margin: 14px 0; font-size: 15px; opacity: .92; }
+  .keys b { color: #ffd24d; }
+  button {
+    margin-top: 16px; font: inherit; font-size: 20px; font-weight: bold; color: #11161f; cursor: pointer;
+    background: #ffd24d; border: none; border-radius: 10px; padding: 12px 30px; box-shadow: 0 5px 0 #b8902a;
+    transition: transform .05s, box-shadow .05s;
+  }
+  button:active { transform: translateY(4px); box-shadow: 0 1px 0 #b8902a; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage">
+  <canvas id="game" width="900" height="540"></canvas>
+
+  <div id="titleScreen" class="overlay">
+    <h1>BANDANA</h1>
+    <p style="font-size:18px;">Climb the tower. Don't let the drones get you.</p>
+    <div class="keys">
+      <p><b>A</b> / <b>D</b> &nbsp;or&nbsp; <b>&larr; &rarr;</b> — move</p>
+      <p><b>W</b> / <b>Space</b> — jump &nbsp;(tap again for a double-jump)</p>
+      <p>Slide down a wall, then jump — <b>wall-jump!</b></p>
+      <p><b>J</b> — fire / attack &nbsp;•&nbsp; <b>1</b> <b>2</b> or <b>Q</b> — swap weapon</p>
+      <p style="font-size:13px;opacity:.8;">Primary: Machine Gun &nbsp;|&nbsp; Secondary: Knife (slices drone shots!)</p>
+      <p><b>Reach the rooftop</b> 🏙️</p>
+    </div>
+    <button id="startBtn">START CLIMB</button>
+  </div>
+
+  <div id="endScreen" class="overlay hidden">
+    <h2 id="endTitle">ROOFTOP!</h2>
+    <p id="endMsg"></p>
+    <button id="againBtn">PLAY AGAIN</button>
+  </div>
+</div></div>
+
+<script>
+// =====================================================================
+// BANDANA — TOWER CLIMB: a vertical parkour shooter. Climb up; drones
+// chase and shoot you; shoot back and reach the rooftop.
+// =====================================================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 900, H = 540;
+
+// ---- physics / tuning ----
+const GRAV = 2050, MAX_FALL = 1250;
+const MOVE = 300, AIR_MOVE = 275;
+const JUMP_V = -720, DJUMP_V = -660;
+const WALL_SLIDE = 150, WALL_JUMP_VX = 380, WALL_JUMP_VY = -700;
+const FIRE_COOLDOWN = 0.15, BULLET_SPEED = 840;
+const INVULN = 1.0;
+const WALL_W = 16;
+
+// drones
+const DRONE_ACCEL = 950, DRONE_MAXSPD = 185, DRONE_FIRE = 1.5;
+const DRONE_BSPEED = 340, DRONE_KEEP = 165, DRONE_RANGE = 500;
+
+// ---- weapons -------------------------------------------------------
+// slot 'primary'  = big guns      | slot 'secondary' = melee + small guns
+const WEAPONS = {
+  machinegun: { name: 'Machine Gun', slot: 'primary',   type: 'gun',   cooldown: 0.10, dmg: 1, speed: 880, spread: 0.05, pellets: 1, kick: 2.5 },
+  shotgun:    { name: 'Shotgun',     slot: 'primary',   type: 'gun',   cooldown: 0.55, dmg: 1, speed: 760, spread: 0.30, pellets: 5, kick: 8   },
+  pistol:     { name: 'Pistol',      slot: 'secondary', type: 'gun',   cooldown: 0.26, dmg: 1, speed: 820, spread: 0.02, pellets: 1, kick: 2   },
+  knife:      { name: 'Combat Knife',slot: 'secondary', type: 'melee', cooldown: 0.28, dmg: 3, range: 50, kick: 4 },
+};
+const DEFAULT_LOADOUT = { primary: 'machinegun', secondary: 'knife' };
+
+// ---- input ----
+const keys = {}, justPressed = {};
+window.addEventListener('keydown', e => {
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+function clearJust() { for (const k in justPressed) justPressed[k] = false; }
+const LEFT  = () => keys['ArrowLeft']  || keys['KeyA'];
+const RIGHT = () => keys['ArrowRight'] || keys['KeyD'];
+const JUMP_PRESSED = () => justPressed['ArrowUp'] || justPressed['KeyW'] || justPressed['Space'];
+const SHOOT = () => keys['KeyJ'] || keys['KeyK'] || keys['KeyL'];
+
+// ---- tiny sound fx ----
+let actx = null;
+function sfx(type) {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    if (type === 'shoot') { o.type='square'; o.frequency.setValueAtTime(640,t); o.frequency.exponentialRampToValueAtTime(190,t+.09); g.gain.setValueAtTime(.1,t); g.gain.exponentialRampToValueAtTime(.001,t+.1); o.start(t); o.stop(t+.1); }
+    else if (type === 'jump') { o.type='sine'; o.frequency.setValueAtTime(340,t); o.frequency.exponentialRampToValueAtTime(720,t+.14); g.gain.setValueAtTime(.13,t); g.gain.exponentialRampToValueAtTime(.001,t+.16); o.start(t); o.stop(t+.16); }
+    else if (type === 'wall') { o.type='triangle'; o.frequency.setValueAtTime(260,t); o.frequency.exponentialRampToValueAtTime(540,t+.12); g.gain.setValueAtTime(.12,t); g.gain.exponentialRampToValueAtTime(.001,t+.14); o.start(t); o.stop(t+.14); }
+    else if (type === 'kill') { o.type='triangle'; o.frequency.setValueAtTime(420,t); o.frequency.exponentialRampToValueAtTime(80,t+.2); g.gain.setValueAtTime(.16,t); g.gain.exponentialRampToValueAtTime(.001,t+.22); o.start(t); o.stop(t+.22); }
+    else if (type === 'hurt') { o.type='sawtooth'; o.frequency.setValueAtTime(260,t); o.frequency.exponentialRampToValueAtTime(70,t+.3); g.gain.setValueAtTime(.18,t); g.gain.exponentialRampToValueAtTime(.001,t+.32); o.start(t); o.stop(t+.32); }
+    else if (type === 'edrone') { o.type='sawtooth'; o.frequency.setValueAtTime(150,t); g.gain.setValueAtTime(.06,t); g.gain.exponentialRampToValueAtTime(.001,t+.12); o.start(t); o.stop(t+.12); }
+    else if (type === 'win') { [523,659,784,1046].forEach((f,i)=>{ const oo=actx.createOscillator(),gg=actx.createGain(); oo.connect(gg); gg.connect(actx.destination); oo.type='square'; oo.frequency.setValueAtTime(f,t+i*.13); gg.gain.setValueAtTime(.12,t+i*.13); gg.gain.exponentialRampToValueAtTime(.001,t+i*.13+.2); oo.start(t+i*.13); oo.stop(t+i*.13+.22); }); }
+  } catch (e) {}
+}
+
+// =====================================================================
+// THE TOWER  (generated: side walls + a weaving column of ledges)
+// =====================================================================
+function generateTower() {
+  const plats = [];
+  const worldH = 4200;
+  plats.push([0, 0, WALL_W, worldH]);            // left wall
+  plats.push([W - WALL_W, 0, WALL_W, worldH]);   // right wall
+  plats.push([0, worldH - 40, W, 40]);           // ground floor
+
+  let y = worldH - 160, prevCx = W / 2;
+  const ledges = [];
+  while (y > 320) {
+    const w = 120 + Math.floor(Math.random() * 80);
+    let cx = prevCx + (Math.random() * 2 - 1) * 235;
+    cx = Math.max(WALL_W + 12 + w / 2, Math.min(W - WALL_W - 12 - w / 2, cx));
+    const x = cx - w / 2;
+    plats.push([x, y, w, 18]);
+    ledges.push({ x, y, w });
+    prevCx = cx;
+    y -= 108 + Math.floor(Math.random() * 34);
+  }
+  const goalY = y;
+  plats.push([W / 2 - 100, goalY, 200, 22]);     // rooftop pad
+  const goalRect = { x: W / 2 - 40, y: goalY - 66, w: 80, h: 66 };
+  return { plats, ledges, worldH, goalY, goalRect, spawn: { x: W / 2 - 11, y: worldH - 96 } };
+}
+
+// =====================================================================
+// STATE
+// =====================================================================
+const state = {
+  mode: 'title',
+  hp: 100,
+  score: 0,
+  camY: 0,
+  player: null,
+  tower: null,
+  bullets: [],
+  eBullets: [],
+  drones: [],
+  particles: [],
+  floats: [],
+  shake: 0,
+  flagT: 0,
+  spawnT: 2.0,
+  lastSafe: { x: 0, y: 0 },
+};
+
+function makePlayer(x, y) {
+  return { x, y, w: 22, h: 44, vx: 0, vy: 0, facing: 1, onGround: false, onWall: 0,
+           jumps: 0, fireT: 0, runPhase: 0, invuln: 0, shootT: 0, wallLock: 0, _slide: false,
+           slot: 'primary', loadout: { primary: DEFAULT_LOADOUT.primary, secondary: DEFAULT_LOADOUT.secondary }, meleeT: 0 };
+}
+
+function startGame() {
+  state.mode = 'play';
+  state.hp = 100; state.score = 0;
+  state.tower = generateTower();
+  state.player = makePlayer(state.tower.spawn.x, state.tower.spawn.y);
+  state.lastSafe = { x: state.tower.spawn.x, y: state.tower.spawn.y };
+  state.bullets = []; state.eBullets = []; state.drones = [];
+  state.particles = []; state.floats = []; state.shake = 0; state.flagT = 0; state.spawnT = 2.0;
+  state.camY = Math.max(0, Math.min(state.tower.worldH - H, state.player.y - H * 0.58));
+}
+
+// =====================================================================
+// COLLISION
+// =====================================================================
+function overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+function rectAt(x, y, w, h) { return { x, y, w, h }; }
+function solidAt(x, y, w, h) {
+  const r = rectAt(x, y, w, h);
+  for (const p of state.tower.plats) if (overlap(r, rectAt(p[0], p[1], p[2], p[3]))) return true;
+  return false;
+}
+function wallDir(e) {
+  if (solidAt(e.x - 3, e.y + 6, 3, e.h - 12)) return -1;
+  if (solidAt(e.x + e.w, e.y + 6, 3, e.h - 12)) return 1;
+  return 0;
+}
+function moveAndCollide(e, dt) {
+  e.x += e.vx * dt;
+  for (const p of state.tower.plats) {
+    const pr = rectAt(p[0], p[1], p[2], p[3]);
+    if (overlap(e, pr)) { if (e.vx > 0) e.x = pr.x - e.w; else if (e.vx < 0) e.x = pr.x + pr.w; e.vx = 0; }
+  }
+  e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
+  if (e._slide && e.vy > WALL_SLIDE) e.vy = WALL_SLIDE;
+  e.y += e.vy * dt;
+  e.onGround = false;
+  for (const p of state.tower.plats) {
+    const pr = rectAt(p[0], p[1], p[2], p[3]);
+    if (overlap(e, pr)) { if (e.vy > 0) { e.y = pr.y - e.h; e.onGround = true; } else if (e.vy < 0) e.y = pr.y + pr.h; e.vy = 0; }
+  }
+}
+
+// =====================================================================
+// UPDATE
+// =====================================================================
+function update(dt) {
+  if (state.mode !== 'play') { clearJust(); return; }
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 30);
+  state.flagT += dt;
+  const p = state.player, T = state.tower;
+
+  // --- wall cling state (touching a wall in the air, pressing toward it) ---
+  const wd = (!p.onGround) ? wallDir(p) : 0;
+  p.onWall = (wd < 0 && LEFT()) ? -1 : (wd > 0 && RIGHT()) ? 1 : 0;
+  p._slide = (p.onWall !== 0 && p.vy > 0);
+
+  // --- jump / wall-jump / double-jump ---
+  if (JUMP_PRESSED()) {
+    if (p.onGround) { p.vy = JUMP_V; p.jumps = 1; sfx('jump'); }
+    else if (p.onWall) { p.vy = WALL_JUMP_VY; p.vx = -p.onWall * WALL_JUMP_VX; p.facing = -p.onWall; p.wallLock = 0.16; p.jumps = 1; sfx('wall'); puff(p.x + p.w / 2, p.y + p.h / 2, '#cfd8e6', 8, 2.5); }
+    else if (p.jumps < 2) { p.vy = DJUMP_V; p.jumps = 2; sfx('jump'); puff(p.x + p.w / 2, p.y + p.h, '#cfd8e6', 6, 2); }
+  }
+
+  // --- horizontal input (locked briefly after a wall-jump) ---
+  const spd = p.onGround ? MOVE : AIR_MOVE;
+  if (p.wallLock > 0) p.wallLock -= dt;
+  else {
+    if (LEFT() && !RIGHT()) { p.vx = -spd; p.facing = -1; }
+    else if (RIGHT() && !LEFT()) { p.vx = spd; p.facing = 1; }
+    else p.vx = 0;
+  }
+
+  moveAndCollide(p, dt);
+  if (p.onGround) { p.jumps = 0; state.lastSafe = { x: Math.max(WALL_W + 4, Math.min(W - WALL_W - 26, p.x)), y: p.y }; }
+  if (Math.abs(p.vx) > 5 && p.onGround) p.runPhase += dt * 12; else p.runPhase = 0;
+  if (p.invuln > 0) p.invuln -= dt;
+
+  // --- weapons: switch slot, then fire / attack ---
+  p.fireT -= dt; if (p.shootT > 0) p.shootT -= dt; if (p.meleeT > 0) p.meleeT -= dt;
+  if (justPressed['KeyQ'] || justPressed['ShiftLeft'] || justPressed['ShiftRight'] || justPressed['KeyE'])
+    p.slot = (p.slot === 'primary') ? 'secondary' : 'primary';
+  if (justPressed['Digit1']) p.slot = 'primary';
+  if (justPressed['Digit2']) p.slot = 'secondary';
+  const wpn = WEAPONS[p.loadout[p.slot]];
+  if (SHOOT() && p.fireT <= 0) {
+    p.fireT = wpn.cooldown;
+    if (wpn.type === 'melee') meleeAttack(p, wpn); else fireGun(p, wpn);
+  }
+
+  // --- player bullets ---
+  for (const b of state.bullets) {
+    b.x += b.vx * dt; b.life -= dt;
+    if (solidAt(b.x, b.y, b.w, b.h)) { b.life = 0; puff(b.x, b.y, '#ffe08a', 4, 2); }
+  }
+  state.bullets = state.bullets.filter(b => b.life > 0);
+
+  // --- spawn drones (more, and faster, the higher you climb) ---
+  const progress = Math.max(0, Math.min(1, (T.worldH - p.y) / (T.worldH - T.goalY)));
+  const maxDrones = 2 + Math.floor(progress * 4);
+  state.spawnT -= dt;
+  if (state.spawnT <= 0 && state.drones.filter(d => d.alive).length < maxDrones) {
+    state.spawnT = Math.max(1.1, 3.0 - progress * 1.7);
+    const dx = Math.max(WALL_W + 30, Math.min(W - WALL_W - 30, p.x + (Math.random() * 2 - 1) * 260));
+    state.drones.push({ x: dx, y: state.camY - 26, w: 34, h: 24, vx: 0, vy: 0, hp: 3, alive: true, dieT: 0, shootT: 0.8 + Math.random(), rotor: 0 });
+  }
+
+  // --- drones: chase + shoot ---
+  for (const d of state.drones) {
+    if (!d.alive) { d.dieT += dt; d.vy += GRAV * dt; d.y += d.vy * dt; d.x += d.vx * dt; continue; }
+    d.rotor += dt * 40;
+    const tx = p.x + p.w / 2, ty = p.y - 50;
+    let dx = tx - (d.x + d.w / 2), dy = ty - (d.y + d.h / 2);
+    const dist = Math.hypot(dx, dy) || 1;
+    let ax, ay;
+    if (dist > DRONE_KEEP) { ax = dx / dist; ay = dy / dist; } else { ax = -dx / dist * 0.5; ay = -dy / dist * 0.5; }
+    d.vx += ax * DRONE_ACCEL * dt; d.vy += ay * DRONE_ACCEL * dt;
+    const sp = Math.hypot(d.vx, d.vy);
+    if (sp > DRONE_MAXSPD) { d.vx = d.vx / sp * DRONE_MAXSPD; d.vy = d.vy / sp * DRONE_MAXSPD; }
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    d.x = Math.max(WALL_W, Math.min(W - WALL_W - d.w, d.x));
+    // fire at the player
+    d.shootT -= dt;
+    if (d.shootT <= 0 && dist < DRONE_RANGE) {
+      d.shootT = DRONE_FIRE;
+      const ux = dx / dist, uy = dy / dist;
+      state.eBullets.push({ x: d.x + d.w / 2, y: d.y + d.h, vx: ux * DRONE_BSPEED, vy: uy * DRONE_BSPEED, w: 8, h: 8, life: 2.4 });
+      sfx('edrone');
+    }
+    // player bullets vs drone
+    for (const b of state.bullets) {
+      if (overlap(b, d)) { b.life = 0; d.hp -= (b.dmg || 1); state.score += 10; puff(b.x, b.y, '#9fe6ff', 6, 2.5); if (d.hp <= 0) killDrone(d); break; }
+    }
+    // contact
+    if (d.alive && p.invuln <= 0 && overlap(p, d)) hurtPlayer(18, (d.x + d.w / 2 < p.x + p.w / 2) ? 1 : -1);
+  }
+  state.drones = state.drones.filter(d => d.alive || d.dieT < 1.3);
+
+  // --- drone bullets ---
+  for (const b of state.eBullets) {
+    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (solidAt(b.x, b.y, b.w, b.h)) { b.life = 0; puff(b.x, b.y, '#ff8a5c', 4, 2); continue; }
+    if (p.invuln <= 0 && overlap(p, b)) { b.life = 0; hurtPlayer(12, b.vx > 0 ? 1 : -1); }
+  }
+  state.eBullets = state.eBullets.filter(b => b.life > 0);
+
+  // --- fell off the tower ---
+  if (p.y > T.worldH + 60) respawnFall();
+
+  // --- reached the rooftop ---
+  if (overlap(p, T.goalRect)) { win(); }
+
+  // --- camera (vertical) ---
+  const targetY = p.y - H * 0.58;
+  state.camY += (targetY - state.camY) * Math.min(1, dt * 7);
+  state.camY = Math.max(0, Math.min(T.worldH - H, state.camY));
+
+  updateParticles(dt);
+  for (const ft of state.floats) { ft.y -= 26 * dt; ft.life -= dt; }
+  state.floats = state.floats.filter(f => f.life > 0);
+  clearJust();
+}
+
+function fireGun(p, w) {
+  p.shootT = 0.1;
+  const bx = p.x + p.w / 2 + p.facing * 16, by = p.y + 15;
+  const n = w.pellets || 1;
+  for (let i = 0; i < n; i++) {
+    const sp = w.spread ? (Math.random() * 2 - 1) * w.spread : 0;
+    const dir = (p.facing > 0 ? 0 : Math.PI) + sp;
+    state.bullets.push({ x: bx, y: by, vx: Math.cos(dir) * w.speed, vy: Math.sin(dir) * w.speed, w: 9, h: 4, life: 1.1, dmg: w.dmg });
+  }
+  sfx('shoot'); state.shake = Math.max(state.shake, w.kick || 2);
+  puff(bx + p.facing * 6, by + 2, '#ffd24d', 3, 1.4);
+}
+function meleeAttack(p, w) {
+  p.meleeT = 0.18; sfx('kill'); state.shake = Math.max(state.shake, w.kick || 4);
+  const range = w.range || 46;
+  const hb = { x: p.facing > 0 ? p.x + p.w - 2 : p.x + 2 - range, y: p.y + 2, w: range, h: p.h - 4 };
+  for (const d of state.drones) {
+    if (d.alive && overlap(hb, d)) { d.hp -= w.dmg; state.score += 10; puff(d.x + d.w / 2, d.y + d.h / 2, '#ffffff', 8, 3); if (d.hp <= 0) killDrone(d); }
+  }
+  // a melee swing also slices incoming drone bullets out of the air
+  state.eBullets = state.eBullets.filter(b => { if (overlap(hb, b)) { puff(b.x, b.y, '#dfe8ff', 5, 2.5); return false; } return true; });
+  puff(hb.x + (p.facing > 0 ? hb.w : 0), p.y + p.h / 2, '#dfe8ff', 5, 2.5);
+}
+function killDrone(d) {
+  if (!d.alive) return;
+  d.alive = false; d.dieT = 0; d.vy = -120; d.vx = (Math.random() * 160 - 80);
+  state.score += 100; sfx('kill'); state.shake = Math.max(state.shake, 6);
+  floatText('+100', d.x + d.w / 2, d.y, '#9fe6ff');
+  puff(d.x + d.w / 2, d.y + d.h / 2, '#9fe6ff', 16, 4);
+  puff(d.x + d.w / 2, d.y + d.h / 2, '#ff8a5c', 8, 3);
+}
+function hurtPlayer(dmg, dir) {
+  const p = state.player;
+  if (p.invuln > 0) return;
+  state.hp -= dmg; p.invuln = INVULN; state.shake = Math.max(state.shake, 9); sfx('hurt');
+  if (dir) { p.vx = dir * 260; p.wallLock = 0.12; }
+  p.vy = Math.min(p.vy, -300);
+  puff(p.x + p.w / 2, p.y + p.h / 2, '#ff4d4d', 12, 3.5);
+  floatText('-' + dmg, p.x + p.w / 2, p.y - 6, '#ff4d4d');
+  if (state.hp <= 0) gameOver();
+}
+function respawnFall() {
+  const p = state.player;
+  state.hp -= 20; sfx('hurt'); state.shake = Math.max(state.shake, 10);
+  if (state.hp <= 0) { gameOver(); return; }
+  p.x = state.lastSafe.x; p.y = state.lastSafe.y - 2; p.vx = 0; p.vy = 0; p.invuln = INVULN; p.jumps = 0;
+  floatText('-20', p.x + p.w / 2, p.y - 6, '#ff4d4d');
+}
+
+function gameOver() {
+  state.mode = 'end';
+  const h = Math.round(Math.max(0, (state.tower.worldH - state.player.y)) / 10);
+  document.getElementById('endTitle').textContent = 'YOU FELL';
+  document.getElementById('endTitle').style.color = '#ff4d4d';
+  document.getElementById('endMsg').textContent = 'Climbed ' + h + 'm • Score ' + state.score;
+  document.getElementById('endScreen').classList.remove('hidden');
+}
+function win() {
+  if (state.mode !== 'play') return;
+  state.mode = 'end'; sfx('win');
+  document.getElementById('endTitle').textContent = 'ROOFTOP! 🎉';
+  document.getElementById('endTitle').style.color = '#7CFC6B';
+  document.getElementById('endMsg').textContent = 'You reached the top! Score ' + state.score;
+  document.getElementById('endScreen').classList.remove('hidden');
+}
+
+// ---- particles / floats ----
+function puff(x, y, color, n, spd) {
+  n = n || 6; spd = spd || 3;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * 6.28, s = Math.random() * spd + 0.5;
+    state.particles.push({ x, y, vx: Math.cos(a) * s * 42, vy: Math.sin(a) * s * 42 - 30, life: .4 + Math.random() * .4, color, r: 2 + Math.random() * 2.5 });
+  }
+}
+function updateParticles(dt) {
+  for (const pa of state.particles) { pa.vy += 320 * dt; pa.x += pa.vx * dt; pa.y += pa.vy * dt; pa.life -= dt; }
+  state.particles = state.particles.filter(p => p.life > 0);
+}
+function floatText(txt, x, y, color) { state.floats.push({ txt, x, y, color, life: .9 }); }
+
+// =====================================================================
+// DRAW
+// =====================================================================
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawSky();
+  if (state.mode === 'title') return;
+
+  ctx.save();
+  let sx = 0, sy = 0;
+  if (state.shake > 0) { sx = (Math.random() * 2 - 1) * state.shake; sy = (Math.random() * 2 - 1) * state.shake; }
+  ctx.translate(sx, -state.camY + sy);
+
+  drawTower();
+  drawGoal();
+  for (const d of state.drones) drawDrone(d);
+  drawBullets();
+  drawPlayer(state.player);
+  drawParticles();
+  drawFloats();
+
+  ctx.restore();
+  drawHUD();
+}
+
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#16203a'); g.addColorStop(0.55, '#243154'); g.addColorStop(1, '#3a4d74');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // moon
+  ctx.fillStyle = 'rgba(235,240,255,.85)'; ctx.beginPath(); ctx.arc(770, 90, 34, 0, 6.28); ctx.fill();
+  ctx.fillStyle = 'rgba(235,240,255,.12)'; ctx.beginPath(); ctx.arc(770, 90, 54, 0, 6.28); ctx.fill();
+}
+
+function drawTower() {
+  const T = state.tower, top = state.camY - 20, bot = state.camY + H + 20;
+  // back facade
+  ctx.fillStyle = '#2a3147'; ctx.fillRect(WALL_W, 0, W - 2 * WALL_W, T.worldH);
+  // windows grid (only the visible band)
+  const y0 = Math.floor(top / 64) * 64;
+  for (let wy = y0; wy < bot; wy += 64) {
+    for (let wx = WALL_W + 22; wx < W - WALL_W - 30; wx += 70) {
+      const lit = ((wx * 13 + wy * 7) % 100) < 34;
+      ctx.fillStyle = lit ? 'rgba(255,214,120,.55)' : 'rgba(120,135,165,.18)';
+      ctx.fillRect(wx, wy + 14, 34, 30);
+    }
+  }
+  // side walls (concrete pillars)
+  ctx.fillStyle = '#444b5e'; ctx.fillRect(0, top, WALL_W, bot - top); ctx.fillRect(W - WALL_W, top, WALL_W, bot - top);
+  ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(WALL_W - 3, top, 3, bot - top); ctx.fillRect(W - WALL_W, top, 3, bot - top);
+
+  // ledges (skip the two walls + ground handled separately)
+  for (const p of T.plats) {
+    const [x, y, w, h] = p;
+    if (w <= WALL_W) continue;                 // side walls
+    if (y + h < top || y > bot) continue;      // offscreen
+    if (h >= 40) { // ground floor
+      ctx.fillStyle = '#5a4030'; roundRect(x, y, w, h, 4); ctx.fill();
+      ctx.fillStyle = '#6e5038'; ctx.fillRect(x, y, w, 6);
+      continue;
+    }
+    // metal girder
+    ctx.fillStyle = '#6b7488'; roundRect(x, y, w, h, 4); ctx.fill();
+    ctx.fillStyle = '#878fa3'; ctx.fillRect(x, y, w, 5);
+    ctx.fillStyle = '#525a6c';
+    for (let i = x + 8; i < x + w - 8; i += 22) { ctx.beginPath(); ctx.arc(i, y + h - 5, 1.6, 0, 6.28); ctx.fill(); }
+  }
+}
+
+function drawGoal() {
+  const T = state.tower, gx = W / 2, gy = T.goalY;
+  // helipad H glow
+  ctx.fillStyle = 'rgba(124,252,107,.25)'; roundRect(gx - 100, gy - 6, 200, 10, 5); ctx.fill();
+  // flag pole
+  ctx.fillStyle = '#444'; ctx.fillRect(gx - 60, gy - 92, 6, 92);
+  ctx.fillStyle = '#ffd24d'; ctx.beginPath(); ctx.arc(gx - 57, gy - 92, 6, 0, 6.28); ctx.fill();
+  const wav = Math.sin(state.flagT * 6) * 6;
+  ctx.fillStyle = '#7CFC6B';
+  ctx.beginPath(); ctx.moveTo(gx - 54, gy - 88);
+  ctx.quadraticCurveTo(gx - 26, gy - 80 + wav, gx, gy - 88);
+  ctx.lineTo(gx, gy - 62 + wav); ctx.quadraticCurveTo(gx - 26, gy - 56 + wav, gx - 54, gy - 62); ctx.closePath(); ctx.fill();
+  // "H"
+  ctx.fillStyle = '#cde8c6'; ctx.font = 'bold 30px Trebuchet MS'; ctx.textAlign = 'center';
+  ctx.fillText('H', gx + 40, gy - 4); ctx.textAlign = 'left';
+}
+
+function drawBullets() {
+  for (const b of state.bullets) {
+    ctx.fillStyle = '#fff0a0'; roundRect(b.x - 1, b.y, b.w + 2, b.h, 2); ctx.fill();
+    ctx.fillStyle = '#ffd24d'; roundRect(b.x, b.y, b.w, b.h, 2); ctx.fill();
+  }
+  for (const b of state.eBullets) {
+    ctx.fillStyle = 'rgba(255,120,70,.4)'; ctx.beginPath(); ctx.arc(b.x + 4, b.y + 4, 7, 0, 6.28); ctx.fill();
+    ctx.fillStyle = '#ff5a3c'; ctx.beginPath(); ctx.arc(b.x + 4, b.y + 4, 4, 0, 6.28); ctx.fill();
+  }
+}
+
+function drawDrone(d) {
+  const cx = d.x + d.w / 2, cy = d.y + d.h / 2;
+  if (!d.alive) {
+    ctx.save(); ctx.globalAlpha = Math.max(0, 1 - d.dieT); ctx.translate(cx, cy); ctx.rotate(d.dieT * 5 * (d.vx < 0 ? -1 : 1));
+    droneBody(0, 0, 1); ctx.restore(); ctx.globalAlpha = 1; return;
+  }
+  // rotor blur
+  ctx.strokeStyle = 'rgba(200,220,255,.5)'; ctx.lineWidth = 2;
+  const r = 8 + Math.sin(d.rotor) * 2;
+  for (const ox of [-d.w / 2, d.w / 2]) { ctx.beginPath(); ctx.ellipse(cx + ox, cy - d.h / 2, r, 3, 0, 0, 6.28); ctx.stroke(); }
+  droneBody(cx, cy, 1);
+}
+function droneBody(cx, cy) {
+  ctx.fillStyle = '#3a4150'; ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
+  roundRect(cx - 16, cy - 7, 32, 14, 6); ctx.fill();
+  ctx.fillStyle = '#5a6478'; roundRect(cx - 16, cy - 7, 32, 5, 3); ctx.fill();
+  // arms
+  ctx.strokeStyle = '#2a2f3a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cx - 12, cy - 4); ctx.lineTo(cx - 17, cy - 9); ctx.moveTo(cx + 12, cy - 4); ctx.lineTo(cx + 17, cy - 9); ctx.stroke();
+  // red eye
+  ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(cx, cy + 1, 3.2, 0, 6.28); ctx.fill();
+  ctx.fillStyle = 'rgba(255,80,80,.35)'; ctx.beginPath(); ctx.arc(cx, cy + 1, 6, 0, 6.28); ctx.fill();
+  // little gun barrel under
+  ctx.fillStyle = '#222'; ctx.fillRect(cx - 2, cy + 6, 4, 6);
+}
+
+// ---- the commando stickman ----
+function drawPlayer(p) {
+  const cx = p.x + p.w / 2, topY = p.y, fc = p.facing;
+  if (p.invuln > 0 && Math.floor(p.invuln * 16) % 2 === 0) ctx.globalAlpha = 0.35;
+
+  const headY = topY + 9, hipY = topY + 30, footY = topY + p.h;
+  const run = p.runPhase, moving = Math.abs(p.vx) > 5 && p.onGround, airborne = !p.onGround;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  // legs
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 5;
+  if (p.onWall) { drawLine(cx, hipY, cx + p.onWall * 4, footY - 8); drawLine(cx, hipY, cx + p.onWall * 10, footY); }
+  else if (airborne) { drawLine(cx, hipY, cx - fc * 8, footY - 6); drawLine(cx, hipY, cx + fc * 10, footY - 12); }
+  else if (moving) { const s = Math.sin(run) * 11, s2 = Math.sin(run + Math.PI) * 11; drawLine(cx, hipY, cx + s, footY); drawLine(cx, hipY, cx + s2, footY); }
+  else { drawLine(cx, hipY, cx - 7, footY); drawLine(cx, hipY, cx + 7, footY); }
+
+  // torso
+  ctx.lineWidth = 6; drawLine(cx, headY + 6, cx, hipY);
+
+  // ammo bandolier
+  ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 7; drawLine(cx - fc * 7, headY + 8, cx + fc * 7, hipY - 2);
+  ctx.fillStyle = '#ffd24d';
+  for (let i = 0; i < 5; i++) {
+    const t = i / 4, bxp = (cx - fc * 7) + (fc * 14) * t, byp = (headY + 8) + ((hipY - 2) - (headY + 8)) * t;
+    ctx.save(); ctx.translate(bxp, byp); ctx.rotate(fc * -0.6); ctx.fillRect(-1.5, -4, 3, 8); ctx.restore();
+  }
+
+  // arms + held weapon
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 5;
+  const shoulderY = headY + 9;
+  drawLine(cx, shoulderY, cx - fc * 9, shoulderY + 12);             // back arm
+  const curW = WEAPONS[p.loadout[p.slot]];
+  if (curW.type === 'melee') {
+    const handX = cx + fc * 15, handY = shoulderY + 5;
+    drawLine(cx, shoulderY, handX, handY);
+    ctx.strokeStyle = '#dfe8ff'; ctx.lineWidth = 4;                 // blade
+    const lift = p.meleeT > 0 ? (1 - p.meleeT / 0.18) : 0.15;
+    drawLine(handX, handY, handX + fc * 20, handY - 16 + lift * 22);
+    if (p.meleeT > 0) { ctx.strokeStyle = 'rgba(223,232,255,.55)'; ctx.lineWidth = 6; drawLine(cx + fc * 8, shoulderY - 8, cx + fc * 42, shoulderY + 18); }
+  } else {
+    const recoil = p.shootT > 0 ? fc * -3 : 0;
+    const handX = cx + fc * 18 + recoil, handY = shoulderY + 6;
+    drawLine(cx, shoulderY, handX, handY);
+    ctx.fillStyle = '#2b2f36'; ctx.save(); ctx.translate(handX, handY); ctx.scale(fc, 1);
+    const long = curW.pellets > 1 ? 24 : 20;                        // shotgun is chunkier
+    ctx.fillRect(-2, -3, long, 6); ctx.fillRect(-4, 0, 6, 9); ctx.fillStyle = '#555'; ctx.fillRect(long - 6, -2, 8, 3); ctx.restore();
+    if (p.shootT > 0) { ctx.fillStyle = '#ffd24d'; ctx.beginPath(); ctx.arc(handX + fc * 24, handY, 4, 0, 6.28); ctx.fill(); }
+  }
+
+  // head + red bandana
+  ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.arc(cx, headY, 9, 0, 6.28); ctx.fill();
+  ctx.fillStyle = '#e23b3b'; ctx.beginPath(); ctx.ellipse(cx, headY - 3, 9.5, 4.5, 0, 0, 6.28); ctx.fill();
+  ctx.fillRect(cx - 9.5, headY - 5, 19, 4);
+  const tw = Math.sin(state.flagT * 10) * 3;
+  ctx.strokeStyle = '#e23b3b'; ctx.lineWidth = 4;
+  drawLine(cx - fc * 8, headY - 3, cx - fc * 20, headY + 2 + tw);
+  drawLine(cx - fc * 8, headY - 1, cx - fc * 18, headY + 9 + tw);
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx + fc * 4, headY + 1, 1.8, 0, 6.28); ctx.fill();
+
+  ctx.globalAlpha = 1;
+}
+
+function drawParticles() {
+  for (const p of state.particles) { ctx.globalAlpha = Math.max(0, p.life * 2); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.fill(); }
+  ctx.globalAlpha = 1;
+}
+function drawFloats() {
+  ctx.font = 'bold 16px Trebuchet MS'; ctx.textAlign = 'center';
+  for (const f of state.floats) { ctx.globalAlpha = Math.max(0, f.life); ctx.fillStyle = '#000'; ctx.fillText(f.txt, f.x + 1, f.y + 1); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, f.y); }
+  ctx.globalAlpha = 1; ctx.textAlign = 'left';
+}
+
+function drawHUD() {
+  // HP bar
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; roundRect(16, 16, 224, 28, 8); ctx.fill();
+  const hpw = Math.max(0, state.hp) / 100 * 208;
+  ctx.fillStyle = state.hp > 35 ? '#5fbf52' : '#ff4d4d'; roundRect(24, 22, hpw, 16, 6); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 13px Trebuchet MS'; ctx.textAlign = 'left'; ctx.fillText('HP', 26, 35);
+  // score
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; roundRect(W - 176, 16, 160, 28, 8); ctx.fill();
+  ctx.fillStyle = '#ffd24d'; ctx.font = 'bold 18px Trebuchet MS'; ctx.fillText('★ ' + state.score, W - 166, 36);
+  // climb meter (right edge)
+  const T = state.tower; if (!T) return;
+  const prog = Math.max(0, Math.min(1, (T.worldH - state.player.y) / (T.worldH - T.goalY)));
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; roundRect(W - 22, 60, 10, H - 130, 5); ctx.fill();
+  ctx.fillStyle = '#7CFC6B'; const mh = (H - 138) * prog; roundRect(W - 21, 60 + (H - 138) - mh + 4, 8, mh, 4); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Trebuchet MS'; ctx.textAlign = 'center';
+  ctx.fillText(Math.round(prog * 100) + '%', W - 17, 54); ctx.textAlign = 'left';
+  drawWeaponHUD();
+}
+function drawWeaponHUD() {
+  const p = state.player; if (!p) return;
+  const slots = [['1', p.loadout.primary, 'primary'], ['2', p.loadout.secondary, 'secondary']];
+  let x = 16; const y = H - 40;
+  for (const [k, id, slot] of slots) {
+    const w = WEAPONS[id], on = p.slot === slot;
+    ctx.fillStyle = on ? 'rgba(255,210,77,.92)' : 'rgba(0,0,0,.42)';
+    roundRect(x, y, 132, 28, 7); ctx.fill();
+    if (on) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; roundRect(x, y, 132, 28, 7); ctx.stroke(); }
+    ctx.fillStyle = on ? '#11161f' : '#cfd6e2'; ctx.font = 'bold 13px Trebuchet MS'; ctx.textAlign = 'left';
+    ctx.fillText('[' + k + '] ' + w.name, x + 9, y + 19);
+    x += 142;
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '11px Trebuchet MS';
+  ctx.fillText('Q = swap', x + 2, y + 19);
+}
+
+// ---- canvas helpers ----
+function drawLine(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+function roundRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2); ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+// =====================================================================
+// LOOP
+// =====================================================================
+let lastT = 0;
+function loop(t) {
+  const dt = Math.min((t - lastT) / 1000 || 0, 0.05); lastT = t;
+  update(dt); draw(); requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---- UI wiring ----
+document.getElementById('startBtn').onclick = () => { document.getElementById('titleScreen').classList.add('hidden'); startGame(); };
+document.getElementById('againBtn').onclick = () => { document.getElementById('endScreen').classList.add('hidden'); startGame(); };
+
+if (typeof module !== 'undefined') module.exports = { state, generateTower, overlap, moveAndCollide, makePlayer, startGame };
+</script>
+</body>
+</html>

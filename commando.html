@@ -38,9 +38,9 @@
     <div class="keys">
       <p><b>A</b> / <b>D</b> &nbsp;or&nbsp; <b>&larr; &rarr;</b> — move</p>
       <p><b>W</b> / <b>Space</b> — jump &nbsp;(tap again for a double-jump)</p>
-      <p>Slide down a wall, then jump — <b>wall-jump!</b></p>
-      <p><b>J</b> — fire / attack &nbsp;•&nbsp; <b>1</b> <b>2</b> or <b>Q</b> — swap weapon</p>
-      <p style="font-size:13px;opacity:.8;">Primary: Machine Gun &nbsp;|&nbsp; Secondary: Knife (slices drone shots!)</p>
+      <p>Slide a wall + jump = <b>wall-jump!</b> &nbsp;•&nbsp; <b style="color:#ff7fd0">Pink pads</b> launch you up!</p>
+      <p><b>Mouse</b> aim &nbsp;•&nbsp; <b>J</b> / <b>click</b> fire &nbsp;•&nbsp; <b>R</b> reload &nbsp;•&nbsp; <b>1</b> <b>2</b> <b>Q</b> swap</p>
+      <p style="font-size:13px;opacity:.8;">Primary: Machine Gun (30) &nbsp;|&nbsp; Secondary: Knife (slices drone shots!)</p>
       <p><b>Reach the rooftop</b> 🏙️</p>
     </div>
     <button id="startBtn">START CLIMB</button>
@@ -67,6 +67,7 @@ const GRAV = 2050, MAX_FALL = 1250;
 const MOVE = 300, AIR_MOVE = 275;
 const JUMP_V = -720, DJUMP_V = -660;
 const WALL_SLIDE = 150, WALL_JUMP_VX = 380, WALL_JUMP_VY = -700;
+const LAUNCH_V = -1180;   // pink pad bounce
 const FIRE_COOLDOWN = 0.15, BULLET_SPEED = 840;
 const INVULN = 1.0;
 const WALL_W = 16;
@@ -78,9 +79,9 @@ const DRONE_BSPEED = 340, DRONE_KEEP = 165, DRONE_RANGE = 500;
 // ---- weapons -------------------------------------------------------
 // slot 'primary'  = big guns      | slot 'secondary' = melee + small guns
 const WEAPONS = {
-  machinegun: { name: 'Machine Gun', slot: 'primary',   type: 'gun',   cooldown: 0.10, dmg: 1, speed: 880, spread: 0.05, pellets: 1, kick: 2.5 },
-  shotgun:    { name: 'Shotgun',     slot: 'primary',   type: 'gun',   cooldown: 0.55, dmg: 1, speed: 760, spread: 0.30, pellets: 5, kick: 8   },
-  pistol:     { name: 'Pistol',      slot: 'secondary', type: 'gun',   cooldown: 0.26, dmg: 1, speed: 820, spread: 0.02, pellets: 1, kick: 2   },
+  machinegun: { name: 'Machine Gun', slot: 'primary',   type: 'gun',   cooldown: 0.10, dmg: 1, speed: 880, spread: 0.05, pellets: 1, kick: 2.5, mag: 30, reload: 1.4 },
+  shotgun:    { name: 'Shotgun',     slot: 'primary',   type: 'gun',   cooldown: 0.55, dmg: 1, speed: 760, spread: 0.30, pellets: 5, kick: 8,   mag: 6,  reload: 1.9 },
+  pistol:     { name: 'Pistol',      slot: 'secondary', type: 'gun',   cooldown: 0.26, dmg: 1, speed: 820, spread: 0.02, pellets: 1, kick: 2,   mag: 12, reload: 1.1 },
   knife:      { name: 'Combat Knife',slot: 'secondary', type: 'melee', cooldown: 0.28, dmg: 3, range: 50, kick: 4 },
 };
 const DEFAULT_LOADOUT = { primary: 'machinegun', secondary: 'knife' };
@@ -94,10 +95,17 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 function clearJust() { for (const k in justPressed) justPressed[k] = false; }
+// mouse (aiming + click to fire)
+const mouse = { x: W / 2, y: H / 2 };
+let mouseDown = false;
+canvas.addEventListener('mousemove', e => { const r = canvas.getBoundingClientRect(); mouse.x = (e.clientX - r.left) * (W / r.width); mouse.y = (e.clientY - r.top) * (H / r.height); });
+canvas.addEventListener('mousedown', e => { if (e.button === 0) mouseDown = true; });
+window.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
 const LEFT  = () => keys['ArrowLeft']  || keys['KeyA'];
 const RIGHT = () => keys['ArrowRight'] || keys['KeyD'];
 const JUMP_PRESSED = () => justPressed['ArrowUp'] || justPressed['KeyW'] || justPressed['Space'];
-const SHOOT = () => keys['KeyJ'] || keys['KeyK'] || keys['KeyL'];
+const SHOOT = () => keys['KeyJ'] || keys['KeyK'] || keys['KeyL'] || mouseDown;
 
 // ---- tiny sound fx ----
 let actx = null;
@@ -112,6 +120,8 @@ function sfx(type) {
     else if (type === 'kill') { o.type='triangle'; o.frequency.setValueAtTime(420,t); o.frequency.exponentialRampToValueAtTime(80,t+.2); g.gain.setValueAtTime(.16,t); g.gain.exponentialRampToValueAtTime(.001,t+.22); o.start(t); o.stop(t+.22); }
     else if (type === 'hurt') { o.type='sawtooth'; o.frequency.setValueAtTime(260,t); o.frequency.exponentialRampToValueAtTime(70,t+.3); g.gain.setValueAtTime(.18,t); g.gain.exponentialRampToValueAtTime(.001,t+.32); o.start(t); o.stop(t+.32); }
     else if (type === 'edrone') { o.type='sawtooth'; o.frequency.setValueAtTime(150,t); g.gain.setValueAtTime(.06,t); g.gain.exponentialRampToValueAtTime(.001,t+.12); o.start(t); o.stop(t+.12); }
+    else if (type === 'launch') { o.type='sine'; o.frequency.setValueAtTime(300,t); o.frequency.exponentialRampToValueAtTime(1150,t+.25); g.gain.setValueAtTime(.16,t); g.gain.exponentialRampToValueAtTime(.001,t+.3); o.start(t); o.stop(t+.3); }
+    else if (type === 'reload') { o.type='square'; o.frequency.setValueAtTime(170,t); g.gain.setValueAtTime(.08,t); g.gain.exponentialRampToValueAtTime(.001,t+.07); o.start(t); o.stop(t+.07); const o2=actx.createOscillator(),g2=actx.createGain(); o2.connect(g2); g2.connect(actx.destination); o2.type='square'; o2.frequency.setValueAtTime(250,t+.14); g2.gain.setValueAtTime(.08,t+.14); g2.gain.exponentialRampToValueAtTime(.001,t+.22); o2.start(t+.14); o2.stop(t+.22); }
     else if (type === 'win') { [523,659,784,1046].forEach((f,i)=>{ const oo=actx.createOscillator(),gg=actx.createGain(); oo.connect(gg); gg.connect(actx.destination); oo.type='square'; oo.frequency.setValueAtTime(f,t+i*.13); gg.gain.setValueAtTime(.12,t+i*.13); gg.gain.exponentialRampToValueAtTime(.001,t+i*.13+.2); oo.start(t+i*.13); oo.stop(t+i*.13+.22); }); }
   } catch (e) {}
 }
@@ -133,7 +143,8 @@ function generateTower() {
     let cx = prevCx + (Math.random() * 2 - 1) * 235;
     cx = Math.max(WALL_W + 12 + w / 2, Math.min(W - WALL_W - 12 - w / 2, cx));
     const x = cx - w / 2;
-    plats.push([x, y, w, 18]);
+    const isPad = Math.random() < 0.2;               // ~1 in 5 ledges is a pink launch pad
+    plats.push([x, y, w, isPad ? 14 : 18, isPad ? 'pad' : null]);
     ledges.push({ x, y, w });
     prevCx = cx;
     y -= 108 + Math.floor(Math.random() * 34);
@@ -166,9 +177,12 @@ const state = {
 };
 
 function makePlayer(x, y) {
+  const ammo = {};
+  for (const id in WEAPONS) if (WEAPONS[id].mag) ammo[id] = WEAPONS[id].mag;
   return { x, y, w: 22, h: 44, vx: 0, vy: 0, facing: 1, onGround: false, onWall: 0,
            jumps: 0, fireT: 0, runPhase: 0, invuln: 0, shootT: 0, wallLock: 0, _slide: false,
-           slot: 'primary', loadout: { primary: DEFAULT_LOADOUT.primary, secondary: DEFAULT_LOADOUT.secondary }, meleeT: 0 };
+           slot: 'primary', loadout: { primary: DEFAULT_LOADOUT.primary, secondary: DEFAULT_LOADOUT.secondary },
+           meleeT: 0, ammo, reloadT: 0, aim: 0 };
 }
 
 function startGame() {
@@ -258,19 +272,45 @@ function update(dt) {
 
   moveAndCollide(p, dt);
   if (p.onGround) { p.jumps = 0; state.lastSafe = { x: Math.max(WALL_W + 4, Math.min(W - WALL_W - 26, p.x)), y: p.y }; }
+  // pink pad → launch upward
+  if (p.onGround) {
+    for (const pl of T.plats) {
+      if (pl[4] !== 'pad') continue;
+      if (p.x + p.w > pl[0] && p.x < pl[0] + pl[2] && Math.abs((p.y + p.h) - pl[1]) < 8) {
+        p.vy = LAUNCH_V; p.onGround = false; p.jumps = 1; sfx('launch'); state.shake = Math.max(state.shake, 7);
+        puff(p.x + p.w / 2, p.y + p.h, '#ff5fbf', 18, 4.5);
+        break;
+      }
+    }
+  }
   if (Math.abs(p.vx) > 5 && p.onGround) p.runPhase += dt * 12; else p.runPhase = 0;
   if (p.invuln > 0) p.invuln -= dt;
 
+  // --- aim at the cursor (convert mouse to world space) ---
+  const mwx = mouse.x, mwy = mouse.y + state.camY;
+  const aimOx = p.x + p.w / 2, aimOy = p.y + 15;
+  p.aim = Math.atan2(mwy - aimOy, mwx - aimOx);
+
   // --- weapons: switch slot, then fire / attack ---
   p.fireT -= dt; if (p.shootT > 0) p.shootT -= dt; if (p.meleeT > 0) p.meleeT -= dt;
+  const prevSlot = p.slot;
   if (justPressed['KeyQ'] || justPressed['ShiftLeft'] || justPressed['ShiftRight'] || justPressed['KeyE'])
     p.slot = (p.slot === 'primary') ? 'secondary' : 'primary';
   if (justPressed['Digit1']) p.slot = 'primary';
   if (justPressed['Digit2']) p.slot = 'secondary';
-  const wpn = WEAPONS[p.loadout[p.slot]];
+  if (p.slot !== prevSlot) p.reloadT = 0;                          // swapping cancels a reload
+  const wid = p.loadout[p.slot], wpn = WEAPONS[wid];
+  if (wpn.type !== 'melee') p.facing = (mwx >= p.x + p.w / 2) ? 1 : -1;
+
+  // reload: auto when empty, or press R
+  if (p.reloadT > 0) { p.reloadT -= dt; if (p.reloadT <= 0) p.ammo[wid] = wpn.mag; }
+  if (justPressed['KeyR'] && wpn.mag && p.reloadT <= 0 && p.ammo[wid] < wpn.mag) { p.reloadT = wpn.reload; sfx('reload'); }
+
   if (SHOOT() && p.fireT <= 0) {
-    p.fireT = wpn.cooldown;
-    if (wpn.type === 'melee') meleeAttack(p, wpn); else fireGun(p, wpn);
+    if (wpn.type === 'melee') { meleeAttack(p, wpn); p.fireT = wpn.cooldown; }
+    else if (p.reloadT > 0) { /* busy reloading */ }
+    else if (p.ammo[wid] <= 0) { p.reloadT = wpn.reload; sfx('reload'); }                 // clicked empty
+    else { fireGun(p, wpn); p.ammo[wid]--; p.fireT = wpn.cooldown; if (p.ammo[wid] <= 0) { p.reloadT = wpn.reload; sfx('reload'); } }
   }
 
   // --- player bullets ---
@@ -282,10 +322,10 @@ function update(dt) {
 
   // --- spawn drones (more, and faster, the higher you climb) ---
   const progress = Math.max(0, Math.min(1, (T.worldH - p.y) / (T.worldH - T.goalY)));
-  const maxDrones = 2 + Math.floor(progress * 4);
+  const maxDrones = 3 + Math.floor(progress * 7);                 // keeps climbing: 3 up to 10 at once
   state.spawnT -= dt;
   if (state.spawnT <= 0 && state.drones.filter(d => d.alive).length < maxDrones) {
-    state.spawnT = Math.max(1.1, 3.0 - progress * 1.7);
+    state.spawnT = Math.max(0.7, 2.2 - progress * 1.5);           // and they keep coming faster as you rise
     const dx = Math.max(WALL_W + 30, Math.min(W - WALL_W - 30, p.x + (Math.random() * 2 - 1) * 260));
     state.drones.push({ x: dx, y: state.camY - 26, w: 34, h: 24, vx: 0, vy: 0, hp: 3, alive: true, dieT: 0, shootT: 0.8 + Math.random(), rotor: 0 });
   }
@@ -349,15 +389,16 @@ function update(dt) {
 
 function fireGun(p, w) {
   p.shootT = 0.1;
-  const bx = p.x + p.w / 2 + p.facing * 16, by = p.y + 15;
+  const ox = p.x + p.w / 2, oy = p.y + 15;
+  const bx = ox + Math.cos(p.aim) * 18, by = oy + Math.sin(p.aim) * 18;   // muzzle, toward cursor
   const n = w.pellets || 1;
   for (let i = 0; i < n; i++) {
     const sp = w.spread ? (Math.random() * 2 - 1) * w.spread : 0;
-    const dir = (p.facing > 0 ? 0 : Math.PI) + sp;
-    state.bullets.push({ x: bx, y: by, vx: Math.cos(dir) * w.speed, vy: Math.sin(dir) * w.speed, w: 9, h: 4, life: 1.1, dmg: w.dmg });
+    const dir = p.aim + sp;
+    state.bullets.push({ x: bx - 4, y: by - 4, vx: Math.cos(dir) * w.speed, vy: Math.sin(dir) * w.speed, w: 8, h: 8, life: 1.1, dmg: w.dmg });
   }
   sfx('shoot'); state.shake = Math.max(state.shake, w.kick || 2);
-  puff(bx + p.facing * 6, by + 2, '#ffd24d', 3, 1.4);
+  puff(bx, by, '#ffd24d', 3, 1.4);
 }
 function meleeAttack(p, w) {
   p.meleeT = 0.18; sfx('kill'); state.shake = Math.max(state.shake, w.kick || 4);
@@ -483,6 +524,16 @@ function drawTower() {
     const [x, y, w, h] = p;
     if (w <= WALL_W) continue;                 // side walls
     if (y + h < top || y > bot) continue;      // offscreen
+    if (p[4] === 'pad') {                       // pink launch pad
+      ctx.fillStyle = '#ff5fbf'; roundRect(x, y, w, h, 5); ctx.fill();
+      ctx.fillStyle = '#ff9fd8'; ctx.fillRect(x, y, w, 4);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      const bob = (state.flagT * 5) % 1 * 4;
+      for (let cxn = x + 16; cxn < x + w - 8; cxn += 26) {
+        ctx.beginPath(); ctx.moveTo(cxn - 6, y + 12 - bob); ctx.lineTo(cxn, y + 5 - bob); ctx.lineTo(cxn + 6, y + 12 - bob); ctx.stroke();
+      }
+      continue;
+    }
     if (h >= 40) { // ground floor
       ctx.fillStyle = '#5a4030'; roundRect(x, y, w, h, 4); ctx.fill();
       ctx.fillStyle = '#6e5038'; ctx.fillRect(x, y, w, 6);
@@ -515,8 +566,11 @@ function drawGoal() {
 
 function drawBullets() {
   for (const b of state.bullets) {
-    ctx.fillStyle = '#fff0a0'; roundRect(b.x - 1, b.y, b.w + 2, b.h, 2); ctx.fill();
-    ctx.fillStyle = '#ffd24d'; roundRect(b.x, b.y, b.w, b.h, 2); ctx.fill();
+    const a = Math.atan2(b.vy, b.vx);
+    ctx.save(); ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.rotate(a);
+    ctx.fillStyle = '#fff0a0'; roundRect(-9, -2.5, 18, 5, 2.5); ctx.fill();
+    ctx.fillStyle = '#ffd24d'; roundRect(-7, -1.5, 13, 3, 1.5); ctx.fill();
+    ctx.restore();
   }
   for (const b of state.eBullets) {
     ctx.fillStyle = 'rgba(255,120,70,.4)'; ctx.beginPath(); ctx.arc(b.x + 4, b.y + 4, 7, 0, 6.28); ctx.fill();
@@ -590,13 +644,15 @@ function drawPlayer(p) {
     drawLine(handX, handY, handX + fc * 20, handY - 16 + lift * 22);
     if (p.meleeT > 0) { ctx.strokeStyle = 'rgba(223,232,255,.55)'; ctx.lineWidth = 6; drawLine(cx + fc * 8, shoulderY - 8, cx + fc * 42, shoulderY + 18); }
   } else {
-    const recoil = p.shootT > 0 ? fc * -3 : 0;
-    const handX = cx + fc * 18 + recoil, handY = shoulderY + 6;
-    drawLine(cx, shoulderY, handX, handY);
-    ctx.fillStyle = '#2b2f36'; ctx.save(); ctx.translate(handX, handY); ctx.scale(fc, 1);
-    const long = curW.pellets > 1 ? 24 : 20;                        // shotgun is chunkier
-    ctx.fillRect(-2, -3, long, 6); ctx.fillRect(-4, 0, 6, 9); ctx.fillStyle = '#555'; ctx.fillRect(long - 6, -2, 8, 3); ctx.restore();
-    if (p.shootT > 0) { ctx.fillStyle = '#ffd24d'; ctx.beginPath(); ctx.arc(handX + fc * 24, handY, 4, 0, 6.28); ctx.fill(); }
+    const aim = p.aim || 0, recoil = p.shootT > 0 ? -3 : 0;
+    const pivX = cx, pivY = shoulderY + 4, reach = 15 + recoil;
+    const handX = pivX + Math.cos(aim) * reach, handY = pivY + Math.sin(aim) * reach;
+    drawLine(cx, shoulderY, handX, handY);                          // arm reaches toward cursor
+    ctx.save(); ctx.translate(handX, handY); ctx.rotate(aim);
+    ctx.fillStyle = '#2b2f36'; const long = curW.pellets > 1 ? 24 : 20; // shotgun is chunkier
+    ctx.fillRect(-2, -3, long, 6); ctx.fillRect(-4, 0, 6, 8); ctx.fillStyle = '#555'; ctx.fillRect(long - 6, -2, 8, 3);
+    ctx.restore();
+    if (p.shootT > 0) { ctx.fillStyle = '#ffd24d'; ctx.beginPath(); ctx.arc(handX + Math.cos(aim) * 22, handY + Math.sin(aim) * 22, 4, 0, 6.28); ctx.fill(); }
   }
 
   // head + red bandana
@@ -653,8 +709,27 @@ function drawWeaponHUD() {
     ctx.fillText('[' + k + '] ' + w.name, x + 9, y + 19);
     x += 142;
   }
-  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '11px Trebuchet MS';
-  ctx.fillText('Q = swap', x + 2, y + 19);
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '10px Trebuchet MS';
+  ctx.fillText('Q swap', x + 2, y + 19);
+
+  // ammo / reload for the equipped weapon
+  const cid = p.loadout[p.slot], cw = WEAPONS[cid];
+  const axc = W / 2 + 70;
+  ctx.textAlign = 'center';
+  if (cw.mag) {
+    if (p.reloadT > 0) {
+      ctx.fillStyle = '#ffd24d'; ctx.font = 'bold 14px Trebuchet MS'; ctx.fillText('RELOADING…', axc, y + 8);
+      const f = 1 - p.reloadT / cw.reload;
+      ctx.fillStyle = 'rgba(0,0,0,.45)'; roundRect(axc - 62, y + 13, 124, 9, 4); ctx.fill();
+      ctx.fillStyle = '#ffd24d'; roundRect(axc - 62, y + 13, 124 * f, 9, 4); ctx.fill();
+    } else {
+      const low = p.ammo[cid] <= cw.mag * 0.25;
+      ctx.fillStyle = low ? '#ff6b6b' : '#fff'; ctx.font = 'bold 24px Trebuchet MS';
+      ctx.fillText(p.ammo[cid] + ' / ' + cw.mag, axc, y + 22);
+      if (p.ammo[cid] === 0) { ctx.fillStyle = '#ff6b6b'; ctx.font = '11px Trebuchet MS'; ctx.fillText('press R', axc, y + 6); }
+    }
+  } else { ctx.fillStyle = '#dfe8ff'; ctx.font = 'bold 20px Trebuchet MS'; ctx.fillText('KNIFE ∞', axc, y + 21); }
+  ctx.textAlign = 'left';
 }
 
 // ---- canvas helpers ----

@@ -1218,11 +1218,17 @@ function drawKickAnim(f, x, hipY, y, fc, col, trim) {
   drawLimb(x - fc * 5, hipY, x - fc * 8, y - 3, col, trim, 5);          // support leg
   drawLimb(x, hipY, x + fc * (16 + e), hipY - 8, col, trim, 6);         // front kick
 }
-// Standard punching arm pose (same for every character).
+// Standard punching arm pose (same for every character, except Ninja's sword).
 function drawPunchAnim(f, cx, shoulderY, fc, col, skin) {
   const e = attackExt(f, 'punch');
   drawLimb(cx - fc * 6, shoulderY + 2, cx - fc * 9, shoulderY + 13, col, skin, 5); // rear guard
-  drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6); // jab
+  if (CHARS[f.charId].sword) { // Ninja slashes with a sword
+    drawLimb(cx + fc * 6, shoulderY, cx + fc * 14, shoulderY + 1, col, skin, 5);
+    ctx.strokeStyle = '#e6eef7'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx + fc * 14, shoulderY + 1); ctx.lineTo(cx + fc * (26 + e), shoulderY - 4); ctx.stroke();
+  } else {
+    drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6); // jab
+  }
 }
 function drawFighter(f) {
   const fc = f.facing, col = f.color, x = f.x;

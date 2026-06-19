@@ -364,6 +364,7 @@ function freshState() {
     banner: '', roundOverTimer: 0, lastWinner: -1,
     shake: 0, hitstop: 0,
     countdown: 0, online_over: false, online_matchWon: -1,
+    winPendingTeam: null, winPendingTimer: 0,
   };
 }
 state = freshState();
@@ -413,6 +414,7 @@ function setupRound() {
   state.fighters = state.lineup.map(makeFighter);
   state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = []; state.fx = [];
   state.roundTime = ROUND_TIME; state.hitstop = 0; state.shake = 0;
+  state.winPendingTeam = null; state.winPendingTimer = 0;
 }
 function startMatch(charId, is2v2) {
   state.is2v2 = is2v2;
@@ -1605,9 +1607,14 @@ function update(dt) {
   resolveCombat();
   updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
 
-  const r = checkRoundOver(state.fighters);
-  if (r !== -1) endRound(r);
-  else if (state.roundTime <= 0) endRound(timeoutWinner());
+  if (state.winPendingTeam == null) {
+    const r = checkRoundOver(state.fighters);
+    if (r !== -1) { state.winPendingTeam = r; state.winPendingTimer = 3.0; }            // let the death animation play
+    else if (state.roundTime <= 0) { state.winPendingTeam = timeoutWinner(); state.winPendingTimer = 3.0; }
+  } else {
+    state.winPendingTimer -= dt;
+    if (state.winPendingTimer <= 0) { const w = state.winPendingTeam; state.winPendingTeam = null; endRound(w); }
+  }
 
   clearJustPressed();
 }
@@ -1946,6 +1953,7 @@ function setupOnlineRound(lineup) {
   state.fighters = lineup.map(makeFighter);
   state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = []; state.fx = [];
   state.countdown = 3.4; state.roundTime = ROUND_TIME; state.banner = ''; state.online_over = false;
+  state.winPendingTeam = null; state.winPendingTimer = 0;
   state.mode = 'fight';
   net.active = true; net.localReady = false; net.remoteReady = false;
   hideOverlays(); renderOnlineUI();
@@ -1967,9 +1975,11 @@ function updateOnlineHost(dt) {
     cullMinions();
     resolveCombat();
     updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
-    const r = checkRoundOver(state.fighters);
-    if (r !== -1 || state.roundTime <= 0) {
-      const w = (r === -1) ? timeoutWinner() : r;
+    if (state.winPendingTeam == null) {
+      const rr = checkRoundOver(state.fighters);
+      if (rr !== -1 || state.roundTime <= 0) { state.winPendingTeam = (rr === -1) ? timeoutWinner() : rr; state.winPendingTimer = 3.0; }
+    } else if ((state.winPendingTimer -= dt) <= 0) {
+      const w = state.winPendingTeam; state.winPendingTeam = null;
       if (w !== 'draw') state.teamRounds[w]++;
       const sc = state.teamRounds[0] + ' - ' + state.teamRounds[1];
       if (w !== 'draw' && state.teamRounds[w] >= ROUNDS_TO_WIN) {

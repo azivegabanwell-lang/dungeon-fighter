@@ -1212,39 +1212,17 @@ function drawStyle(id, cx, headTop, fc, col) {
     ctx.fillStyle = '#3ff'; ctx.fillRect(cx - 9, headTop + 7, 18, 4); ctx.restore(); // visor
   }
 }
-// Per-character kicking leg pose.
+// Standard kicking leg pose (same for every character).
 function drawKickAnim(f, x, hipY, y, fc, col, trim) {
   const e = attackExt(f, 'kick');
-  const s = CHARS[f.charId].kickAnim || 'front';
-  drawLimb(x - fc * 5, hipY, x - fc * 8, y - 3, col, trim, 5); // support leg
-  if (s === 'roundhouse')   drawLimb(x, hipY, x + fc * (12 + e), hipY - 24, col, trim, 6);
-  else if (s === 'axe')     drawLimb(x, hipY, x + fc * (8 + e * 0.5), hipY - 34, col, trim, 6);
-  else if (s === 'sweep')   drawLimb(x, hipY, x + fc * (22 + e), y + 1, col, trim, 7);
-  else if (s === 'knee')    drawLimb(x, hipY, x + fc * (10 + e * 0.4), hipY - 14, col, trim, 8);
-  else if (s === 'side')    drawLimb(x, hipY, x + fc * (20 + e), hipY + 1, col, trim, 7);
-  else if (s === 'spin')    drawLimb(x, hipY, x + fc * (14 + e), hipY - 18 + Math.sin(f.stateTimer * 50) * 8, col, trim, 6);
-  else if (s === 'flying') { drawLimb(x, hipY, x + fc * (16 + e), hipY - 4, col, trim, 6); drawLimb(x, hipY, x + fc * (13 + e), hipY + 6, col, trim, 6); }
-  else                      drawLimb(x, hipY, x + fc * (16 + e), hipY - 8, col, trim, 6); // front
+  drawLimb(x - fc * 5, hipY, x - fc * 8, y - 3, col, trim, 5);          // support leg
+  drawLimb(x, hipY, x + fc * (16 + e), hipY - 8, col, trim, 6);         // front kick
 }
-// Per-character punching arm pose.
+// Standard punching arm pose (same for every character).
 function drawPunchAnim(f, cx, shoulderY, fc, col, skin) {
   const e = attackExt(f, 'punch');
-  const ch = CHARS[f.charId];
-  const s = ch.sword ? 'sword' : (ch.punchAnim || 'jab');
   drawLimb(cx - fc * 6, shoulderY + 2, cx - fc * 9, shoulderY + 13, col, skin, 5); // rear guard
-  if (s === 'cross')         drawLimb(cx + fc * 5, shoulderY + 2, cx + fc * (21 + e), shoulderY + 3, col, skin, 6);
-  else if (s === 'hook')     drawLimb(cx + fc * 6, shoulderY + 2, cx + fc * (14 + e), shoulderY - 9, col, skin, 6);
-  else if (s === 'uppercut') drawLimb(cx + fc * 4, shoulderY + 5, cx + fc * (10 + e * 0.5), shoulderY - 14, col, skin, 6);
-  else if (s === 'hammer') { drawLimb(cx + fc * 2, shoulderY - 7, cx + fc * (10 + e * 0.4), shoulderY + 12, col, skin, 6); drawLimb(cx - fc * 2, shoulderY - 7, cx + fc * (8 + e * 0.4), shoulderY + 12, col, skin, 6); }
-  else if (s === 'palm')     drawLimb(cx + fc * 6, shoulderY, cx + fc * (16 + e), shoulderY + 1, col, skin, 9);
-  else if (s === 'double') { drawLimb(cx + fc * 6, shoulderY - 3, cx + fc * (16 + e), shoulderY - 2, col, skin, 6); drawLimb(cx + fc * 6, shoulderY + 5, cx + fc * (16 + e), shoulderY + 6, col, skin, 6); }
-  else if (s === 'backfist') drawLimb(cx + fc * 6, shoulderY - 1, cx + fc * (17 + e), shoulderY - 5, col, skin, 6);
-  else if (s === 'sword') {
-    drawLimb(cx + fc * 6, shoulderY, cx + fc * 14, shoulderY + 1, col, skin, 5);
-    ctx.strokeStyle = '#e6eef7'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(cx + fc * 14, shoulderY + 1); ctx.lineTo(cx + fc * (26 + e), shoulderY - 4); ctx.stroke();
-  }
-  else                       drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6); // jab
+  drawLimb(cx + fc * 6, shoulderY, cx + fc * (18 + e), shoulderY + 1, col, skin, 6); // jab
 }
 function drawFighter(f) {
   const fc = f.facing, col = f.color, x = f.x;

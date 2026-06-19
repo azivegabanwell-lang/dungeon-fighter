@@ -224,6 +224,9 @@ const CHARS = [
   { name: 'Elemental', color: '#a64dff', style: 'Mage. RANDOM cataclysm: quake / tsunami / eruption / lightning.',
     walkSpeed: 200, jumpMul: 1.0, maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
     special: 'elemental', specialName: 'CATACLYSM', premium: true, costOff: 100, costOn: 50 },
+  { name: 'Berserker', color: '#cc1f3a', style: 'Rager. Hits HARDER the lower his HP. Wild random super.',
+    walkSpeed: 215, jumpMul: 1.05, maxHp: 110, punchDmg: 7, punchRange: 40, kickDmg: 13, kickRange: 50,
+    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true },
 ];
 // Per-character punch/kick animation styles, so each fighter's attacks look different.
 const PUNCH_ANIMS = ['jab', 'cross', 'hook', 'uppercut', 'hammer', 'palm', 'double', 'backfist'];
@@ -265,6 +268,7 @@ const SPECIALS = {
   summon:      { dur: 0.50 },
   machinegun:  { dur: 1.00 },
   elemental:   { dur: 0.60 },
+  rage:        { dur: 0.40 },
 };
 // Specials that fight at range — the AI keeps distance and zones with these.
 const ZONER_SPECIALS = new Set(['beam', 'javelin', 'machinegun']);
@@ -439,7 +443,8 @@ function computeHitbox(f) {
   const range = f.attackName === 'punch' ? ch.punchRange : ch.kickRange;
   let baseDmg = f.attackName === 'punch' ? ch.punchDmg : ch.kickDmg;
   if (f.isMinion) baseDmg = 5; // summoned guards hit for 5
-  const dmg = baseDmg * (f.buffTimer > 0 ? 1.6 : 1);
+  let dmg = baseDmg * (f.buffTimer > 0 ? 1.6 : 1);
+  if (ch.lowHpDamage) dmg *= 1 + (1 - f.hp / f.maxHp); // Berserker: up to 2x at near death
   const front = f.x + f.facing * (f.w / 2);
   const w = m.boxW + range;
   const bx = f.facing > 0 ? front : front - w;
@@ -589,27 +594,49 @@ function startKO(f) {
 // =====================================================================
 function startSpecial(f) {
   const ch = CHARS[f.charId];
-  f.state = 'special'; f.attackName = 'special'; f.specialName = ch.special;
+  f.state = 'special'; f.attackName = 'special';
   f.stateTimer = 0; f.hasHit = false; f.facingLocked = true; f.meter = 0;
   f.spawnedProj = false; f.shockDone = false; f.flurryTick = 1; f.countering = false; f.tpDone = false; f.shotTick = 0;
   f.lassoTarget = null; f.lassoShots = 0;
   sfx('special');
   spawnParticles(f.x, f.y - 50, ch.color, 10, 2.5);
-  if (ch.special === 'lifesteal') { f.vx = f.facing * 240; }        // small lunge into the bite
-  else if (ch.special === 'berserk') { f.vx = 0; f.buffTimer = 6.0; spawnParticles(f.x, f.y - 40, ch.color, 20, 3); }
-  else if (ch.special === 'freeze') { f.vx = 0; doFreeze(f); }
-  else if (ch.special === 'grab') { f.vx = f.facing * 180; }       // short forward step
-  else if (ch.special === 'teleport') { f.invuln = 0.4; f.vx = 0; } // i-frames through the blink
-  else if (ch.special === 'shadowslash') { f.vx = 0; f.invuln = 0.4; doBlink(f); } // blink behind, then slash
-  else if (ch.special === 'trap') { f.vx = 0; spawnTrap(f); }      // drop the rune immediately
-  else if (ch.special === 'summon') { f.vx = 0; summonGuards(f); } // call in 2 guards
-  else if (ch.special === 'elemental') { f.vx = 0; doElemental(f); } // random cataclysm
-  else if (ch.special === 'shield') { f.vx = 0; f.shieldTimer = 1.2; f.invuln = 1.2; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
-  else if (ch.special === 'repel') { f.vx = 0; doRepel(f); }
-  else if (ch.special === 'venom') { f.vx = f.facing * 200; }      // small step into the venom strike
-  else if (ch.special === 'slow') { f.vx = 0; doSlow(f); }
-  else if (ch.special === 'thorns') { f.vx = 0; f.thornsTimer = 5.0; spawnParticles(f.x, f.y - 40, ch.color, 16, 2); }
-  else { f.vx = 0; } // beam, pull, counter, heal: stand still
+  let sp = ch.special;
+  if (sp === 'berserker') sp = chooseBerserkerSpecial(); // random: his rage, or ANY character's super
+  f.specialName = sp;
+  activateSpecial(f, sp);
+}
+function chooseBerserkerSpecial() {
+  if (Math.random() < 0.5) return 'rage';
+  const pool = [];
+  CHARS.forEach(c => { if (c.special !== 'berserker' && pool.indexOf(c.special) < 0) pool.push(c.special); });
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function activateSpecial(f, sp) {
+  if (sp === 'rage') {                                              // Berserker: buff + knockback nova
+    f.vx = 0; f.buffTimer = 5.0; f.hasteTimer = 5.0;               // +damage & +attack speed for 5s
+    spawnParticles(f.x, f.y - 40, f.color, 26, 4); state.shake = Math.max(state.shake, 11);
+    for (const o of state.fighters) {                              // knock back everyone close, 5 dmg
+      if (o.team === f.team || o.state === 'ko' || o.invuln > 0) continue;
+      if (Math.abs(o.x - f.x) < 130) {
+        applyHit(f, o, { dmg: 5, move: { hitstun: 0.3, knockbackVx: (o.x < f.x ? -1 : 1) * 460, knockbackVy: -240, chipMul: 0.5, meterOnHit: 0, meterOnBlock: 0, sfx: 'special' } });
+      }
+    }
+  }
+  else if (sp === 'lifesteal') { f.vx = f.facing * 240; }
+  else if (sp === 'berserk') { f.vx = 0; f.buffTimer = 6.0; spawnParticles(f.x, f.y - 40, f.color, 20, 3); }
+  else if (sp === 'freeze') { f.vx = 0; doFreeze(f); }
+  else if (sp === 'grab') { f.vx = f.facing * 180; }
+  else if (sp === 'teleport') { f.invuln = 0.4; f.vx = 0; }
+  else if (sp === 'shadowslash') { f.vx = 0; f.invuln = 0.4; doBlink(f); }
+  else if (sp === 'trap') { f.vx = 0; spawnTrap(f); }
+  else if (sp === 'summon') { f.vx = 0; summonGuards(f); }
+  else if (sp === 'elemental') { f.vx = 0; doElemental(f); }
+  else if (sp === 'shield') { f.vx = 0; f.shieldTimer = 1.2; f.invuln = 1.2; spawnParticles(f.x, f.y - 40, f.color, 16, 2); }
+  else if (sp === 'repel') { f.vx = 0; doRepel(f); }
+  else if (sp === 'venom') { f.vx = f.facing * 200; }
+  else if (sp === 'slow') { f.vx = 0; doSlow(f); }
+  else if (sp === 'thorns') { f.vx = 0; f.thornsTimer = 5.0; spawnParticles(f.x, f.y - 40, f.color, 16, 2); }
+  else { f.vx = 0; } // beam, javelin, counter, heal, lasso, machinegun: act in updateSpecial
 }
 // Gale's Gust: shove every nearby opponent far away.
 function doRepel(f) {
@@ -839,6 +866,8 @@ function updateSpecial(f, dt) {
     if (t >= sp.dur) endAttack(f);
   } else if (name === 'summon') {
     if (t >= sp.dur) endAttack(f); // guards spawned on activation
+  } else if (name === 'rage') {
+    if (t >= sp.dur) endAttack(f); // buff + nova applied on activation
   } else if (name === 'machinegun') {
     if (t >= f.shotTick * 0.07 && f.shotTick < 10) { spawnGunBullet(f); f.shotTick++; sfx('hit'); } // 10 bullets
     if (t >= sp.dur) endAttack(f);

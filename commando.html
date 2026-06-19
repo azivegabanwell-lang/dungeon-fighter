@@ -197,6 +197,19 @@ function wallDir(e) {
   if (solidAt(e.x + e.w, e.y + 6, 3, e.h - 12)) return 1;
   return 0;
 }
+// Shove a flyer (drone) out of any platform it overlaps, along the shallowest axis.
+function pushOutOfPlatforms(e) {
+  for (const p of state.tower.plats) {
+    const pr = rectAt(p[0], p[1], p[2], p[3]);
+    if (!overlap(e, pr)) continue;
+    const left = pr.x - (e.x + e.w), right = (pr.x + pr.w) - e.x;   // x escapes
+    const up = pr.y - (e.y + e.h), down = (pr.y + pr.h) - e.y;      // y escapes
+    const ox = Math.abs(left) < Math.abs(right) ? left : right;
+    const oy = Math.abs(up) < Math.abs(down) ? up : down;
+    if (Math.abs(ox) < Math.abs(oy)) { e.x += ox; if ((ox < 0 && e.vx > 0) || (ox > 0 && e.vx < 0)) e.vx = 0; }
+    else { e.y += oy; if ((oy < 0 && e.vy > 0) || (oy > 0 && e.vy < 0)) e.vy = 0; }
+  }
+}
 function moveAndCollide(e, dt) {
   e.x += e.vx * dt;
   for (const p of state.tower.plats) {
@@ -291,6 +304,7 @@ function update(dt) {
     if (sp > DRONE_MAXSPD) { d.vx = d.vx / sp * DRONE_MAXSPD; d.vy = d.vy / sp * DRONE_MAXSPD; }
     d.x += d.vx * dt; d.y += d.vy * dt;
     d.x = Math.max(WALL_W, Math.min(W - WALL_W - d.w, d.x));
+    pushOutOfPlatforms(d);   // drones can't fly through ledges
     // fire at the player
     d.shootT -= dt;
     if (d.shootT <= 0 && dist < DRONE_RANGE) {

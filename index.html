@@ -15,6 +15,60 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+
+// ===================================================================
+// CARTOON RENDERING LAYER
+// Gives the whole game a cartoon look with three global techniques, so
+// individual sprite-draw functions don't need rewriting:
+//   1) vibrant palette  — a CSS filter over the whole canvas
+//   2) rounded shapes    — fillRect rounds small (sprite-scale) rectangles
+//   3) bold outlines     — drawInked() lays a dark silhouette behind a sprite
+// ===================================================================
+canvas.style.filter = 'saturate(1.5) brightness(1.12) contrast(1.05)';
+const CARTOON_INK = '#241a2e';
+let _inkPass = false;
+
+// Round small filled rectangles for a soft, cartoony silhouette. Large rects
+// (backgrounds, panels, full-screen clears) and tiny details stay crisp, and
+// the outline pass skips rounding for speed.
+const _rawFillRect = CanvasRenderingContext2D.prototype.fillRect;
+ctx.fillRect = function (x, y, w, h) {
+  if (_inkPass || w < 4 || h < 4 || w > 80 || h > 80 || !this.roundRect) {
+    _rawFillRect.call(this, x, y, w, h); return;
+  }
+  const r = Math.min(3, Math.abs(w) / 4, Math.abs(h) / 4);
+  this.beginPath(); this.roundRect(x, y, w, h, r); this.fill();
+};
+
+// During the outline pass, force every fill/stroke to the ink color.
+const _fillDesc = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'fillStyle');
+const _strokeDesc = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'strokeStyle');
+Object.defineProperty(ctx, 'fillStyle', {
+  configurable: true,
+  get() { return _fillDesc.get.call(this); },
+  set(v) { _fillDesc.set.call(this, _inkPass ? CARTOON_INK : v); },
+});
+Object.defineProperty(ctx, 'strokeStyle', {
+  configurable: true,
+  get() { return _strokeDesc.get.call(this); },
+  set(v) { _strokeDesc.set.call(this, _inkPass ? CARTOON_INK : v); },
+});
+
+// Draw fn() with a bold dark outline behind it (the classic cartoon "ink" line).
+// Renders the sprite 8 times in ink, offset around a ring, then once normally.
+function drawInked(fn, thickness = 2) {
+  const aSave = ctx.globalAlpha, blurSave = ctx.shadowBlur;
+  ctx.shadowBlur = 0;
+  _inkPass = true;
+  for (let i = 0; i < 8; i++) {
+    const ang = i * Math.PI / 4;
+    const dx = Math.cos(ang) * thickness, dy = Math.sin(ang) * thickness;
+    ctx.translate(dx, dy); fn(); ctx.translate(-dx, -dy);
+  }
+  _inkPass = false;
+  ctx.globalAlpha = aSave; ctx.shadowBlur = blurSave;
+  fn();
+}
 const W = 800, H = 600;
 canvas.width = W; canvas.height = H;
 
@@ -2602,20 +2656,20 @@ function draw() {
 
     if (d.isPlayer) {
       const fakeP = { x: d.x, y: d.y + dropY, facing: d.facing, invincible: 0, weaponTier: d.weaponTier, isAttacking: false, attackAngle: 0, hp: 1, maxHp: 1, alive: true, downed: false, permaDead: false };
-      drawPlayerWithColors(fakeP, d.playerColors);
+      drawInked(() => drawPlayerWithColors(fakeP, d.playerColors));
     } else {
       const fakeM = { x: d.x, y: d.y + dropY, w: d.w, h: d.h, type: d.type, facing: d.facing, isBoss: d.isBoss, wobble: 0, hp: 0, maxHp: 1, isStoryBoss: d.isStoryBoss, storyBossIdx: d.storyBossIdx, bossName: d.bossName, charging: false, burnTimer: 0, slowTimer: 0, poisonTimer: 0, _deathAnim: true };
-      drawMonster(fakeM);
+      drawInked(() => drawMonster(fakeM));
     }
 
     ctx.restore();
   });
 
-  monsters.forEach(m => drawMonster(m));
+  monsters.forEach(m => drawInked(() => drawMonster(m)));
   if (currentMode === 'teamwork') {
-    players.forEach((p, i) => drawPlayerWithColors(p, PLAYER_COLORS[i]));
+    players.forEach((p, i) => drawInked(() => drawPlayerWithColors(p, PLAYER_COLORS[i])));
   } else {
-    drawPlayer();
+    drawInked(() => drawPlayer());
   }
 
   // Shockwaves

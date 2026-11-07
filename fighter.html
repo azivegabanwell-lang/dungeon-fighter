@@ -1425,13 +1425,13 @@ function drawFighter(f) {
     rpath(cx - 13, torsoTop + 1, 26, 27, 5); ctx.fill();
     ctx.restore();
   }
-  // Rune: glowing magic symbol
+  // Rune: glowing magic symbol on chest
   if (charData.runic) {
     const t = Date.now() / 600;
     ctx.save(); ctx.globalAlpha = 0.55 + Math.sin(t) * 0.2; ctx.strokeStyle = '#ff4fcf'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(cx, torsoTop+15, 7, 0, Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx, torsoTop+8); ctx.lineTo(cx, torsoTop+22); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx-5,torsoTop+11); ctx.lineTo(cx+5,torsoTop+19); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, torsoTop+8, 7, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, torsoTop+1); ctx.lineTo(cx, torsoTop+15); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-5,torsoTop+4); ctx.lineTo(cx+5,torsoTop+12); ctx.stroke();
     ctx.restore();
   }
   // Bastion: armor plate seams + rivets

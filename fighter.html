@@ -1418,32 +1418,10 @@ function drawFighter(f) {
     ctx.beginPath(); ctx.moveTo(cx+6,torsoTop+4); ctx.lineTo(cx+10,torsoTop+13); ctx.lineTo(cx+6,torsoTop+21); ctx.stroke();
     ctx.restore();
   }
-  // Phantom: ghost wings + inner glow
+  // Phantom: extra inner ghost glow
   if (charData.spectral) {
     const t = Date.now() / 800;
-    ctx.save();
-    // Wings drawn BEHIND torso (before arm layer but we save/restore)
-    const wingFlap = Math.sin(t * 0.9) * 8;
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = '#6a5cff'; ctx.strokeStyle = '#a090ff'; ctx.lineWidth = 1.5;
-    // Left wing
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, shoulderY + 4);
-    ctx.bezierCurveTo(cx - 36, shoulderY - 10 + wingFlap, cx - 44, shoulderY + 18 + wingFlap, cx - 28, torsoTop + 28);
-    ctx.bezierCurveTo(cx - 20, torsoTop + 24, cx - 14, torsoTop + 20, cx - 14, shoulderY + 4);
-    ctx.fill(); ctx.stroke();
-    // Right wing
-    ctx.beginPath();
-    ctx.moveTo(cx + 14, shoulderY + 4);
-    ctx.bezierCurveTo(cx + 36, shoulderY - 10 + wingFlap, cx + 44, shoulderY + 18 + wingFlap, cx + 28, torsoTop + 28);
-    ctx.bezierCurveTo(cx + 20, torsoTop + 24, cx + 14, torsoTop + 20, cx + 14, shoulderY + 4);
-    ctx.fill(); ctx.stroke();
-    // Wing vein lines
-    ctx.globalAlpha = 0.35; ctx.strokeStyle = '#c0b0ff'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(cx-14, shoulderY+4); ctx.quadraticCurveTo(cx-32, shoulderY+4+wingFlap, cx-28, torsoTop+28); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx+14, shoulderY+4); ctx.quadraticCurveTo(cx+32, shoulderY+4+wingFlap, cx+28, torsoTop+28); ctx.stroke();
-    // Inner ghost glow on torso
-    ctx.globalAlpha = 0.18 + Math.abs(Math.sin(t)) * 0.1; ctx.fillStyle = '#8888ff';
+    ctx.save(); ctx.globalAlpha = 0.18 + Math.abs(Math.sin(t)) * 0.1; ctx.fillStyle = '#8888ff';
     rpath(cx - 13, torsoTop + 1, 26, 27, 5); ctx.fill();
     ctx.restore();
   }

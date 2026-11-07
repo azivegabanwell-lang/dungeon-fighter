@@ -165,16 +165,20 @@ function inPauseBtn() {
 const CHARS = [
   { name: 'Blaze', color: '#ff5533', style: 'Zoner. Sears an instant flame beam across the lane.',
     walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 52,
-    special: 'beam', specialName: 'FLAME BEAM', blazing: true },
+    special: 'beam', specialName: 'FLAME BEAM', blazing: true,
+    customKick: { name: 'FLAME KICK', cooldown: 5, dmgMul: 1.6, effect: 'flamekick' } },
   { name: 'Nyx', color: '#a06bff', style: 'Rushdown. Vampiric strike that heals on hit.',
     walkSpeed: 270, jumpMul: 1.05, maxHp: 90,  punchDmg: 5, punchRange: 34, kickDmg: 9,  kickRange: 46,
-    special: 'lifesteal', specialName: 'DRAIN FANG', bodyScale: 0.88, darkSkin: true, vampiric: true },
+    special: 'lifesteal', specialName: 'DRAIN FANG', bodyScale: 0.88, darkSkin: true, vampiric: true,
+    customKick: { name: 'DRAIN KICK', cooldown: 5, dmgMul: 1.1, effect: 'drainkick' } },
   { name: 'Titan', color: '#3fa9f5', style: 'Heavyweight. Enrages for big damage & speed.',
     walkSpeed: 150, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 15, kickRange: 50,
-    special: 'berserk', specialName: 'BERSERK', bodyScale: 1.38, muscles: true, energized: true },
+    special: 'berserk', specialName: 'BERSERK', bodyScale: 1.38, muscles: true, energized: true,
+    customKick: { name: 'EARTH STOMP', cooldown: 6, effect: 'stomp' } },
   { name: 'Vex', color: '#2ecc71', style: 'Trickster. Freezes a foe solid to combo them.',
     walkSpeed: 220, jumpMul: 1.15, maxHp: 100, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'freeze', specialName: 'STASIS', bodyScale: 0.78, crystalline: true },
+    special: 'freeze', specialName: 'STASIS', bodyScale: 0.78, crystalline: true,
+    customKick: { name: 'FROST KICK', cooldown: 4, effect: 'frostkick' } },
   { name: 'Echo', color: '#f1c40f', style: 'Lancer. Hurls a piercing javelin from afar.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
     special: 'javelin', specialName: 'JAVELIN', bodyScale: 1.07, lightningMark: true },
@@ -198,7 +202,8 @@ const CHARS = [
     special: 'shield', specialName: 'AEGIS', bodyScale: 1.12, armored: true },
   { name: 'Gale', color: '#8fd9c8', style: 'Spacer. A gust that hurls foes far away.',
     walkSpeed: 250, jumpMul: 1.2,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'repel', specialName: 'GUST', bodyScale: 0.9, windy: true },
+    special: 'repel', specialName: 'GUST', bodyScale: 0.9, windy: true,
+    customKick: { name: 'CYCLONE KICK', cooldown: 4, dmgMul: 1.1, effect: 'winddash' } },
   { name: 'Toxin', color: '#a4d61e', style: 'Poisoner. A venom strike that rots health over time.',
     walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 42, kickDmg: 11, kickRange: 54,
     special: 'venom', specialName: 'VENOM', venomous: true },
@@ -226,7 +231,8 @@ const CHARS = [
     special: 'elemental', specialName: 'CATACLYSM', premium: true, costOff: 100, costOn: 50, elementalBody: true },
   { name: 'Berserker', color: '#cc1f3a', style: 'Rager. Hits HARDER the lower his HP. Wild random super.',
     walkSpeed: 215, jumpMul: 1.05, maxHp: 110, punchDmg: 7, punchRange: 40, kickDmg: 13, kickRange: 50,
-    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true, premium: true, costOff: 75, costOn: 38, bodyScale: 1.42, muscles: true, scarred: true },
+    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true, premium: true, costOff: 75, costOn: 38, bodyScale: 1.42, muscles: true, scarred: true,
+    customKick: { name: 'RAGE SLAM', cooldown: 5, dmgMul: 2.0, effect: 'rageslam' } },
 ];
 // Per-character punch/kick animation styles, so each fighter's attacks look different.
 const PUNCH_ANIMS = ['jab', 'cross', 'hook', 'uppercut', 'hammer', 'palm', 'double', 'backfist'];
@@ -364,6 +370,7 @@ function freshState() {
     lineup: [],              // [{charId, team, isPlayer, x, facing}]
     fighters: [],
     projectiles: [], shockwaves: [], traps: [], particles: [], floatTexts: [], fx: [],
+    medkits: [], medkitTimer: 10,
     roundTime: ROUND_TIME, roundNum: 1, teamRounds: [0, 0],
     banner: '', roundOverTimer: 0, lastWinner: -1,
     shake: 0, hitstop: 0,
@@ -392,7 +399,7 @@ function makeFighter(spec) {
     invuln: 0, hitFlash: 0, recoil: 0, hitstunDur: 0,
     walkPhase: 0, bobPhase: Math.random() * 6,
     spawnedProj: false, shockDone: false, flurryTick: 1, countering: false, tpDone: false,
-    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0, hasteTimer: 0, shotTick: 0,
+    buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0, hasteTimer: 0, shotTick: 0, customKickCd: 0, customKickActive: false,
     lassoTarget: null, lassoShots: 0, lassoNextShot: 0, koTimer: 0, koSpin: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
           desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
@@ -417,6 +424,7 @@ function buildLineup(charId, is2v2) {
 function setupRound() {
   state.fighters = state.lineup.map(makeFighter);
   state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = []; state.fx = [];
+  state.medkits = []; state.medkitTimer = 10;
   state.roundTime = ROUND_TIME; state.hitstop = 0; state.shake = 0;
   state.winPendingTeam = null; state.winPendingTimer = 0;
 }
@@ -448,6 +456,20 @@ function computeHitbox(f) {
   const front = f.x + f.facing * (f.w / 2);
   const w = m.boxW + range;
   const bx = f.facing > 0 ? front : front - w;
+  // Apply custom kick modifiers (damage boost + on-hit effects)
+  if (f.attackName === 'kick' && f.customKickActive && !f.isMinion) {
+    const ck = (CHARS[f.charId] || {}).customKick;
+    if (ck) {
+      if (ck.dmgMul) dmg = Math.round(dmg * ck.dmgMul);
+      const mv = Object.assign({}, m);
+      if (ck.effect === 'drainkick') mv.lifesteal = 0.5;
+      if (ck.effect === 'frostkick') mv.customFreeze = true;
+      if (ck.effect === 'flamekick') mv.customFire = true;
+      if (ck.effect === 'rageslam') { mv.knockbackVx = 500; mv.knockbackVy = -380; }
+      if (ck.effect === 'winddash') { mv.knockbackVx = 440; mv.knockbackVy = -200; }
+      return { x: bx, y: f.y - m.boxYOffset - m.boxH / 2, w, h: m.boxH, dmg, move: mv };
+    }
+  }
   return { x: bx, y: f.y - m.boxYOffset - m.boxH / 2, w, h: m.boxH, dmg, move: m };
 }
 function specialHitbox(f) {
@@ -527,6 +549,13 @@ function applyHit(a, t, box) {
     floatText(a.x, a.y - 96, '+' + Math.round(heal), '#6fff9f');
   }
   if (box.move.poison) { t.poisonTimer = box.move.poison; t.poisonTick = 0.5; } // Toxin's Venom
+  if (box.move.customFreeze && t.state !== 'ko') { // Vex Frost Kick: freezes on hit
+    t.frozen = 0.7; t.vx = 0; t.state = 'idle'; t.attackName = null; t.specialName = null;
+    spawnParticles(t.x, t.y - 50, '#a0ffe8', 14, 2.5); floatText(t.x, t.y - 96, 'FROZEN!', '#a0ffe8');
+  }
+  if (box.move.customFire) { // Blaze Flame Kick: burst of fire particles
+    spawnParticles(t.x, t.y - 50, '#ff7700', 14, 3.5); spawnParticles(t.x, t.y - 32, '#ffcc00', 8, 2);
+  }
   if (t.thornsTimer > 0 && a.team !== t.team && a.state !== 'ko') { // Bramble's thorns reflect
     const refl = box.dmg * 0.5;
     a.hp = Math.max(0, a.hp - refl);
@@ -817,7 +846,37 @@ function minionIntent(f) {
 }
 function endAttack(f) {
   f.state = 'idle'; f.attackName = null; f.specialName = null;
-  f.hasHit = false; f.facingLocked = false;
+  f.hasHit = false; f.facingLocked = false; f.customKickActive = false;
+}
+// Custom kick: triggers a character's special K-move with a cooldown
+function startCustomKick(f) {
+  const ck = CHARS[f.charId].customKick;
+  startAttack(f, 'kick');
+  f.customKickActive = true;
+  f.customKickCd = ck.cooldown;
+  sfx('special');
+  if (ck.effect === 'stomp') {
+    // Earth Stomp: instant AOE at feet — more damage close, less far
+    spawnParticles(f.x, GROUND_Y, '#c8a060', 24, 4);
+    spawnParticles(f.x, GROUND_Y, '#8a7360', 10, 2.5);
+    state.shake = Math.max(state.shake, 10);
+    for (const o of state.fighters) {
+      if (o.team === f.team || o.state === 'ko' || o.invuln > 0) continue;
+      const dist = Math.abs(o.x - f.x);
+      if (dist > 160) continue;
+      const dmg = Math.max(5, Math.round(28 * (1 - dist / 160)));
+      landHit(f, o, { dmg, move: { hitstun: 0.45, knockbackVx: (o.x < f.x ? -1 : 1) * 300, knockbackVy: -320, chipMul: 0.5, meterOnHit: 5, meterOnBlock: 4, pushOnBlock: 160, sfx: 'special' } });
+    }
+  } else if (ck.effect === 'flamekick') {
+    spawnParticles(f.x + f.facing * 20, f.y - 36, '#ff7700', 12, 3);
+    spawnParticles(f.x + f.facing * 20, f.y - 36, '#ffcc00', 7, 2.5);
+  } else if (ck.effect === 'rageslam') {
+    f.vx = f.facing * 240;
+    spawnParticles(f.x, f.y - 40, '#cc1f3a', 14, 3.5);
+  } else if (ck.effect === 'winddash') {
+    f.vx = f.facing * 350;
+    spawnParticles(f.x, f.y - 40, f.color, 10, 2.5);
+  }
 }
 function updateSpecial(f, dt) {
   const name = f.specialName, t = f.stateTimer, sp = SPECIALS[name];
@@ -938,6 +997,30 @@ function updateTraps(dt) {
   }
   state.traps = state.traps.filter(tr => tr.life > 0 && !tr.dead);
 }
+function updateMedkits(dt) {
+  // Spawn a medkit every 10 seconds during a fight
+  state.medkitTimer -= dt;
+  if (state.medkitTimer <= 0) {
+    state.medkitTimer = 10;
+    state.medkits.push({ x: WALL_L + 60 + Math.random() * (WALL_R - WALL_L - 120), y: -40, vy: 320, life: 7.0 });
+  }
+  for (const mk of state.medkits) {
+    mk.life -= dt;
+    if (mk.y < GROUND_Y) { mk.y = Math.min(GROUND_Y, mk.y + mk.vy * dt); }
+    if (mk.y >= GROUND_Y) { // check if any fighter picks it up
+      for (const f of state.fighters) {
+        if (f.state === 'ko') continue;
+        if (Math.abs(f.x - mk.x) < 24) {
+          f.hp = Math.min(f.maxHp, f.hp + 15);
+          spawnParticles(mk.x, GROUND_Y - 20, '#6fff9f', 14, 2.5);
+          floatText(mk.x, GROUND_Y - 55, '+15 HP', '#6fff9f');
+          mk.life = 0; break;
+        }
+      }
+    }
+  }
+  state.medkits = state.medkits.filter(mk => mk.life > 0);
+}
 function updateShockwaves(dt) {
   for (const s of state.shockwaves) {
     s.r = Math.min(s.maxR, s.r + s.grow * dt); s.life -= dt;
@@ -988,10 +1071,14 @@ function applyIntent(f, intent) {
   if (f.onGround) {
     if (intent.special && f.meter >= MAX_METER) { startSpecial(f); return; }
     if (intent.punch) { startAttack(f, 'punch'); return; }
-    if (intent.kick && (!(net && net.active) || f.kickCooldown <= 0)) {
-      startAttack(f, 'kick');
-      if (net && net.active) f.kickCooldown = 2.5; // kick cooldown only applies in online mode
-      return;
+    if (intent.kick) {
+      const ckData = !f.isMinion && (CHARS[f.charId] || {}).customKick;
+      if (ckData && f.customKickCd <= 0) { startCustomKick(f); return; }
+      if (!(net && net.active) || f.kickCooldown <= 0) {
+        startAttack(f, 'kick');
+        if (net && net.active) f.kickCooldown = 2.5;
+        return;
+      }
     }
   }
 
@@ -1019,6 +1106,7 @@ function updateFighter(f, dt) {
   if (f.shieldTimer > 0) f.shieldTimer -= dt;
   if (f.thornsTimer > 0) f.thornsTimer -= dt;
   if (f.kickCooldown > 0) f.kickCooldown -= dt;
+  if (f.customKickCd > 0) f.customKickCd -= dt;
   if (f.isMinion) f.life -= dt; // summoned guards expire
   if (f.state === 'ko') f.koTimer += dt; // death animation timer
   if (f.poisonTimer > 0) {
@@ -1573,6 +1661,13 @@ function drawFighter(f) {
   // close per-character visual transforms
   if (charData.ghostly) ctx.restore();
   if (bodyScale !== 1.0) ctx.restore();
+  // Custom kick cooldown bar (shown below feet when on cooldown)
+  if (!f.isMinion && charData.customKick && f.customKickCd > 0) {
+    const pct = Math.max(0, f.customKickCd / charData.customKick.cooldown);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(f.x - 16, f.y + 5, 32, 4);
+    ctx.fillStyle = '#ff6633'; ctx.fillRect(f.x - 16, f.y + 5, Math.round(32 * (1 - pct)), 4);
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 0.5; ctx.strokeRect(f.x - 16, f.y + 5, 32, 4);
+  }
 }
 function drawMarker(f) {
   const x = f.x, y = f.y - (f.state === 'ko' ? 0 : 96);
@@ -1617,6 +1712,22 @@ function drawProjectiles() {
       ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;
       ctx.beginPath(); ctx.arc(p.x - p.vx * 0.004, p.y, p.r * 0.45, 0, Math.PI * 2); ctx.fill();
     }
+    ctx.restore();
+  }
+}
+function drawMedkits() {
+  for (const mk of state.medkits) {
+    const alpha = mk.life < 2 ? mk.life / 2 : 1;
+    const my = mk.y - 14;
+    ctx.save(); ctx.globalAlpha = alpha;
+    // White box background
+    rpath(mk.x - 9, my - 9, 18, 18, 3); ctx.fillStyle = '#ffffff'; ctx.fill();
+    // Red cross
+    ctx.fillStyle = '#e53935'; ctx.fillRect(mk.x - 7, my - 2, 14, 4); ctx.fillRect(mk.x - 2, my - 7, 4, 14);
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1; rpath(mk.x - 9, my - 9, 18, 18, 3); ctx.stroke();
+    // Drop shadow on ground
+    ctx.globalAlpha = alpha * 0.25; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(mk.x, GROUND_Y + 2, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 }
@@ -1748,6 +1859,7 @@ function draw() {
   if (state.shake > 0) { shx = (Math.random() - 0.5) * state.shake; shy = (Math.random() - 0.5) * state.shake; }
   ctx.save(); ctx.translate(shx, shy);
   drawBackground();
+  drawMedkits();
   drawTraps();
   if (state.fighters.length) {
     for (const f of state.fighters) drawFighter(f);
@@ -1801,7 +1913,7 @@ function update(dt) {
   for (const f of state.fighters) updateFighter(f, dt);
   cullMinions();
   resolveCombat();
-  updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt);
+  updateProjectiles(dt); updateShockwaves(dt); updateTraps(dt); updateMedkits(dt);
 
   if (state.winPendingTeam == null) {
     const r = checkRoundOver(state.fighters);

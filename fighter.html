@@ -165,46 +165,46 @@ function inPauseBtn() {
 const CHARS = [
   { name: 'Blaze', color: '#ff5533', style: 'Zoner. Sears an instant flame beam across the lane.',
     walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 52,
-    special: 'beam', specialName: 'FLAME BEAM' },
+    special: 'beam', specialName: 'FLAME BEAM', blazing: true },
   { name: 'Nyx', color: '#a06bff', style: 'Rushdown. Vampiric strike that heals on hit.',
     walkSpeed: 270, jumpMul: 1.05, maxHp: 90,  punchDmg: 5, punchRange: 34, kickDmg: 9,  kickRange: 46,
-    special: 'lifesteal', specialName: 'DRAIN FANG', bodyScale: 0.88, darkSkin: true },
+    special: 'lifesteal', specialName: 'DRAIN FANG', bodyScale: 0.88, darkSkin: true, vampiric: true },
   { name: 'Titan', color: '#3fa9f5', style: 'Heavyweight. Enrages for big damage & speed.',
     walkSpeed: 150, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 15, kickRange: 50,
-    special: 'berserk', specialName: 'BERSERK', bodyScale: 1.38, muscles: true },
+    special: 'berserk', specialName: 'BERSERK', bodyScale: 1.38, muscles: true, energized: true },
   { name: 'Vex', color: '#2ecc71', style: 'Trickster. Freezes a foe solid to combo them.',
     walkSpeed: 220, jumpMul: 1.15, maxHp: 100, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'freeze', specialName: 'STASIS', bodyScale: 0.78 },
+    special: 'freeze', specialName: 'STASIS', bodyScale: 0.78, crystalline: true },
   { name: 'Echo', color: '#f1c40f', style: 'Lancer. Hurls a piercing javelin from afar.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
-    special: 'javelin', specialName: 'JAVELIN', bodyScale: 1.07 },
+    special: 'javelin', specialName: 'JAVELIN', bodyScale: 1.07, lightningMark: true },
   { name: 'Mirror', color: '#c9d2e0', style: 'Counter. Parries the next hit, then punishes hard.',
     walkSpeed: 205, jumpMul: 1.0,  maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
-    special: 'counter', specialName: 'RIPOSTE' },
+    special: 'counter', specialName: 'RIPOSTE', metallic: true },
   { name: 'Sage', color: '#23c7a7', style: 'Survivor. Meditates to heal — but is defenseless.',
     walkSpeed: 195, jumpMul: 0.95, maxHp: 95,  punchDmg: 6, punchRange: 38, kickDmg: 10, kickRange: 48,
-    special: 'heal', specialName: 'MEDITATE' },
+    special: 'heal', specialName: 'MEDITATE', sagely: true },
   { name: 'Crush', color: '#e2792a', style: 'Grappler. Unblockable grab that ignores guard.',
     walkSpeed: 165, jumpMul: 0.85, maxHp: 115, punchDmg: 7, punchRange: 38, kickDmg: 13, kickRange: 48,
-    special: 'grab', specialName: 'SEISMIC GRAB', bodyScale: 1.22, muscles: true },
+    special: 'grab', specialName: 'SEISMIC GRAB', bodyScale: 1.22, muscles: true, rocky: true },
   { name: 'Phantom', color: '#6a5cff', style: 'Trickster. Blinks behind the foe for a backstab.',
     walkSpeed: 235, jumpMul: 1.1,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 46,
-    special: 'teleport', specialName: 'SHADOW STEP', bodyScale: 0.85, ghostly: true },
+    special: 'teleport', specialName: 'SHADOW STEP', bodyScale: 0.85, ghostly: true, spectral: true },
   { name: 'Rune', color: '#ff4fcf', style: 'Trapper. Lays a rune that detonates on contact.',
     walkSpeed: 210, jumpMul: 1.0,  maxHp: 98,  punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 50,
-    special: 'trap', specialName: 'RUNE TRAP' },
+    special: 'trap', specialName: 'RUNE TRAP', runic: true },
   { name: 'Bastion', color: '#4d80b0', style: 'Defender. Raises a shield of total invulnerability.',
     walkSpeed: 175, jumpMul: 0.9,  maxHp: 115, punchDmg: 7, punchRange: 38, kickDmg: 13, kickRange: 50,
-    special: 'shield', specialName: 'AEGIS', bodyScale: 1.12 },
+    special: 'shield', specialName: 'AEGIS', bodyScale: 1.12, armored: true },
   { name: 'Gale', color: '#8fd9c8', style: 'Spacer. A gust that hurls foes far away.',
     walkSpeed: 250, jumpMul: 1.2,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'repel', specialName: 'GUST', bodyScale: 0.9 },
+    special: 'repel', specialName: 'GUST', bodyScale: 0.9, windy: true },
   { name: 'Toxin', color: '#a4d61e', style: 'Poisoner. A venom strike that rots health over time.',
     walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 42, kickDmg: 11, kickRange: 54,
-    special: 'venom', specialName: 'VENOM' },
+    special: 'venom', specialName: 'VENOM', venomous: true },
   { name: 'Chrono', color: '#b9c6ff', style: 'Controller. Warps time to slow a foe to a crawl.',
     walkSpeed: 205, jumpMul: 1.0,  maxHp: 98,  punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
-    special: 'slow', specialName: 'TIME WARP' },
+    special: 'slow', specialName: 'TIME WARP', temporal: true },
   { name: 'Bramble', color: '#7a8b3a', style: 'Bruiser. Thorns reflect damage back to attackers.',
     walkSpeed: 170, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'thorns', specialName: 'BRAMBLE', bodyScale: 1.15, spiky: true },
@@ -223,10 +223,10 @@ const CHARS = [
     special: 'machinegun', specialName: 'MACHINE GUN', look: 'cyber', premium: true, costOff: 60, costOn: 30 },
   { name: 'Elemental', color: '#a64dff', style: 'Mage. RANDOM cataclysm: quake / tsunami / eruption / lightning.',
     walkSpeed: 200, jumpMul: 1.0, maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
-    special: 'elemental', specialName: 'CATACLYSM', premium: true, costOff: 100, costOn: 50 },
+    special: 'elemental', specialName: 'CATACLYSM', premium: true, costOff: 100, costOn: 50, elementalBody: true },
   { name: 'Berserker', color: '#cc1f3a', style: 'Rager. Hits HARDER the lower his HP. Wild random super.',
     walkSpeed: 215, jumpMul: 1.05, maxHp: 110, punchDmg: 7, punchRange: 40, kickDmg: 13, kickRange: 50,
-    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true, premium: true, costOff: 75, costOn: 38, bodyScale: 1.42, muscles: true },
+    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true, premium: true, costOff: 75, costOn: 38, bodyScale: 1.42, muscles: true, scarred: true },
 ];
 // Per-character punch/kick animation styles, so each fighter's attacks look different.
 const PUNCH_ANIMS = ['jab', 'cross', 'hook', 'uppercut', 'hammer', 'palm', 'double', 'backfist'];
@@ -1324,6 +1324,164 @@ function drawFighter(f) {
     ctx.save(); ctx.strokeStyle = darken(col, 0.2); ctx.lineWidth = 2.5; ctx.globalAlpha = 0.9;
     const pts = [[cx-14,torsoTop+5,-1,0],[cx-14,torsoTop+18,-1,0],[cx+14,torsoTop+8,1,0],[cx+14,torsoTop+20,1,0],[cx-4,torsoTop,-0.3,-1],[cx+4,torsoTop,0.3,-1]];
     for (const [bx,by,dx,dy] of pts) { ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+dx*7,by+dy*7); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  // ---- Detailed per-character visuals ----
+  // Blaze: animated fire body — gradient + flame tongues rising from torso
+  if (charData.blazing) {
+    const t = Date.now() / 300;
+    ctx.save();
+    const grad = ctx.createLinearGradient(cx, torsoTop, cx, torsoTop + 30);
+    grad.addColorStop(0, 'rgba(255,230,50,0.55)'); grad.addColorStop(0.4, 'rgba(255,110,20,0.4)'); grad.addColorStop(1, 'rgba(160,10,0,0.3)');
+    ctx.fillStyle = grad; rpath(cx - 14, torsoTop, 28, 30, 6); ctx.fill();
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    for (let i = 0; i < 5; i++) {
+      const fx = cx - 11 + i * 5.5;
+      const h = 9 + Math.abs(Math.sin(t * 0.9 + i * 1.4)) * 9;
+      const sw = Math.sin(t + i * 1.7) * 3;
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = i % 2 === 0 ? '#ff7700' : '#ffdd00';
+      ctx.beginPath(); ctx.moveTo(fx, torsoTop); ctx.quadraticCurveTo(fx + sw, torsoTop - h * 0.5, fx + sw * 0.4, torsoTop - h); ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+  }
+  // Elemental: 4-element body quarters — TL rock, TR fire, BL water, BR lightning
+  if (charData.elementalBody) {
+    ctx.save();
+    const tw = 28, th = 30, tx = cx - 14, ty = torsoTop, qw = 14, qh = 15;
+    rpath(tx, ty, tw, th, 6); ctx.clip();
+    ctx.fillStyle = '#8a7360'; ctx.fillRect(tx, ty, qw, qh);
+    ctx.strokeStyle = '#4a3528'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.moveTo(tx+2,ty+6); ctx.lineTo(tx+6,ty+9); ctx.lineTo(tx+9,ty+5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx+9,ty+2); ctx.lineTo(tx+12,ty+8); ctx.stroke();
+    ctx.fillStyle = '#c03010'; ctx.globalAlpha = 1; ctx.fillRect(tx + qw, ty, qw, qh);
+    ctx.fillStyle = '#ffaa20'; ctx.globalAlpha = 0.65;
+    ctx.beginPath(); ctx.moveTo(tx+qw+2,ty+qh); ctx.quadraticCurveTo(tx+qw+4,ty+5,tx+qw+7,ty+1); ctx.quadraticCurveTo(tx+qw+11,ty+5,tx+qw+9,ty+qh); ctx.fill();
+    ctx.fillStyle = '#1565c0'; ctx.globalAlpha = 1; ctx.fillRect(tx, ty+qh, qw, qh);
+    ctx.fillStyle = '#64b5f6'; ctx.globalAlpha = 0.55;
+    ctx.beginPath(); ctx.arc(tx+5,ty+qh+5,4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(tx+10,ty+qh+10,3,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#c4a000'; ctx.globalAlpha = 1; ctx.fillRect(tx+qw, ty+qh, qw, qh);
+    ctx.strokeStyle = '#fff176'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(tx+qw+8,ty+qh+1); ctx.lineTo(tx+qw+5,ty+qh+6); ctx.lineTo(tx+qw+8,ty+qh+7); ctx.lineTo(tx+qw+5,ty+qh+13); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(tx+qw, ty); ctx.lineTo(tx+qw, ty+th); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx, ty+qh); ctx.lineTo(tx+tw, ty+qh); ctx.stroke();
+    ctx.restore();
+  }
+  // Nyx: vampire dark aura + fang tips on face
+  if (charData.vampiric) {
+    ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#5500aa';
+    rpath(cx - 16, torsoTop - 2, 32, 34, 8); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = '#fff';
+    ctx.fillRect(cx - fc*2 - 1, headTop + 13, 2, 4);
+    ctx.fillRect(cx - fc*2 + 3, headTop + 13, 2, 4);
+    ctx.restore();
+  }
+  // Vex: crystal facet lines on torso
+  if (charData.crystalline) {
+    ctx.save(); ctx.globalAlpha = 0.45; ctx.strokeStyle = '#a0ffe8'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx-14,torsoTop+8); ctx.lineTo(cx,torsoTop+2); ctx.lineTo(cx+14,torsoTop+8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-12,torsoTop+18); ctx.lineTo(cx-3,torsoTop+10); ctx.lineTo(cx+3,torsoTop+10); ctx.lineTo(cx+12,torsoTop+18); ctx.stroke();
+    ctx.restore();
+  }
+  // Echo: lightning bolt on chest
+  if (charData.lightningMark) {
+    ctx.save(); ctx.globalAlpha = 0.9; ctx.strokeStyle = '#ffe150'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx+2,torsoTop+5); ctx.lineTo(cx-3,torsoTop+14); ctx.lineTo(cx+2,torsoTop+14); ctx.lineTo(cx-3,torsoTop+23); ctx.stroke();
+    ctx.restore();
+  }
+  // Mirror: metallic chrome shine stripes
+  if (charData.metallic) {
+    ctx.save(); ctx.globalAlpha = 0.28; ctx.lineCap = 'butt';
+    for (let i = 0; i < 3; i++) {
+      const sx = cx - 10 + i * 9;
+      ctx.strokeStyle = i === 1 ? '#ffffff' : '#cccccc'; ctx.lineWidth = i === 1 ? 4 : 2.5;
+      ctx.beginPath(); ctx.moveTo(sx, torsoTop + 30); ctx.lineTo(sx + 7, torsoTop); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // Sage: healing glow circle on chest
+  if (charData.sagely) {
+    const t = Date.now() / 1000;
+    ctx.save(); ctx.globalAlpha = 0.18 + Math.sin(t) * 0.07; ctx.fillStyle = '#00e676';
+    ctx.beginPath(); ctx.arc(cx, torsoTop+15, 10, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 0.55; ctx.strokeStyle = '#00e676'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, torsoTop+15, 13 + Math.sin(t*2)*2, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  // Crush: rock crack lines on body
+  if (charData.rocky) {
+    ctx.save(); ctx.strokeStyle = '#6d4c41'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.65; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx-9,torsoTop+6); ctx.lineTo(cx-3,torsoTop+15); ctx.lineTo(cx-7,torsoTop+24); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+6,torsoTop+4); ctx.lineTo(cx+10,torsoTop+13); ctx.lineTo(cx+6,torsoTop+21); ctx.stroke();
+    ctx.restore();
+  }
+  // Phantom: extra inner ghost glow
+  if (charData.spectral) {
+    const t = Date.now() / 800;
+    ctx.save(); ctx.globalAlpha = 0.18 + Math.abs(Math.sin(t)) * 0.1; ctx.fillStyle = '#8888ff';
+    rpath(cx - 13, torsoTop + 1, 26, 27, 5); ctx.fill();
+    ctx.restore();
+  }
+  // Rune: glowing magic symbol
+  if (charData.runic) {
+    const t = Date.now() / 600;
+    ctx.save(); ctx.globalAlpha = 0.55 + Math.sin(t) * 0.2; ctx.strokeStyle = '#ff4fcf'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, torsoTop+15, 7, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, torsoTop+8); ctx.lineTo(cx, torsoTop+22); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-5,torsoTop+11); ctx.lineTo(cx+5,torsoTop+19); ctx.stroke();
+    ctx.restore();
+  }
+  // Bastion: armor plate seams + rivets
+  if (charData.armored) {
+    ctx.save(); ctx.strokeStyle = darken(col, 0.3); ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7;
+    ctx.beginPath(); ctx.moveTo(cx-13,torsoTop+10); ctx.lineTo(cx+13,torsoTop+10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-13,torsoTop+20); ctx.lineTo(cx+13,torsoTop+20); ctx.stroke();
+    ctx.fillStyle = darken(col, 0.25);
+    for (const ox of [-10,-3,4,11]) { ctx.beginPath(); ctx.arc(cx+ox, torsoTop+5, 2, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(cx+ox, torsoTop+15, 2, 0, Math.PI*2); ctx.fill(); }
+    ctx.restore();
+  }
+  // Gale: wind swirl lines
+  if (charData.windy) {
+    ctx.save(); ctx.strokeStyle = '#d0f5ed'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.arc(cx+5, torsoTop+15, 9, Math.PI*0.75, Math.PI*1.75); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx-3, torsoTop+14, 7, Math.PI*1.6, Math.PI*2.6); ctx.stroke();
+    ctx.restore();
+  }
+  // Toxin: venom drips from torso bottom
+  if (charData.venomous) {
+    ctx.save(); ctx.fillStyle = '#a4d61e'; ctx.globalAlpha = 0.75;
+    for (let i = 0; i < 3; i++) {
+      const dx = cx - 7 + i * 7, dh = 5 + (i % 2) * 4;
+      ctx.beginPath(); ctx.ellipse(dx, torsoTop + 33 + dh * 0.5, 2.5, dh * 0.5, 0, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // Chrono: clock face on chest
+  if (charData.temporal) {
+    const t = Date.now() / 1000;
+    ctx.save(); ctx.globalAlpha = 0.65; ctx.strokeStyle = '#b9c6ff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, torsoTop+15, 8, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,torsoTop+15); ctx.lineTo(cx+Math.cos(t)*5, torsoTop+15+Math.sin(t)*5); ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = '#7799ff';
+    ctx.beginPath(); ctx.moveTo(cx,torsoTop+15); ctx.lineTo(cx+Math.cos(t*4)*3, torsoTop+15+Math.sin(t*4)*3); ctx.stroke();
+    ctx.restore();
+  }
+  // Titan: blue energy glow on muscle arches
+  if (charData.energized && charData.muscles) {
+    const t = Date.now() / 200;
+    ctx.save(); ctx.globalAlpha = 0.35 + Math.abs(Math.sin(t)) * 0.2; ctx.strokeStyle = '#40c8ff'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(cx-11,torsoTop+7); ctx.quadraticCurveTo(cx,torsoTop+12,cx+11,torsoTop+7); ctx.stroke();
+    ctx.restore();
+  }
+  // Berserker: battle scars on torso
+  if (charData.scarred) {
+    ctx.save(); ctx.strokeStyle = '#ff2244'; ctx.lineWidth = 2; ctx.globalAlpha = 0.55; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx-9,torsoTop+5); ctx.lineTo(cx-4,torsoTop+16); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+8,torsoTop+8); ctx.lineTo(cx+4,torsoTop+18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-5,torsoTop+19); ctx.lineTo(cx+3,torsoTop+26); ctx.stroke();
     ctx.restore();
   }
 

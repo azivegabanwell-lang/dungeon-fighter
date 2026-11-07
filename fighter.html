@@ -1428,7 +1428,7 @@ function drawFighter(f) {
   // Rune: glowing magic symbol on chest
   if (charData.runic) {
     const t = Date.now() / 600;
-    ctx.save(); ctx.globalAlpha = 0.55 + Math.sin(t) * 0.2; ctx.strokeStyle = '#ff4fcf'; ctx.lineWidth = 1.5;
+    ctx.save(); ctx.globalAlpha = 0.85 + Math.sin(t) * 0.1; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(cx, torsoTop+8, 7, 0, Math.PI*2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx, torsoTop+1); ctx.lineTo(cx, torsoTop+15); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx-5,torsoTop+4); ctx.lineTo(cx+5,torsoTop+12); ctx.stroke();

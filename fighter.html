@@ -168,16 +168,16 @@ const CHARS = [
     special: 'beam', specialName: 'FLAME BEAM' },
   { name: 'Nyx', color: '#a06bff', style: 'Rushdown. Vampiric strike that heals on hit.',
     walkSpeed: 270, jumpMul: 1.05, maxHp: 90,  punchDmg: 5, punchRange: 34, kickDmg: 9,  kickRange: 46,
-    special: 'lifesteal', specialName: 'DRAIN FANG' },
+    special: 'lifesteal', specialName: 'DRAIN FANG', bodyScale: 0.88, darkSkin: true },
   { name: 'Titan', color: '#3fa9f5', style: 'Heavyweight. Enrages for big damage & speed.',
     walkSpeed: 150, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 15, kickRange: 50,
-    special: 'berserk', specialName: 'BERSERK' },
+    special: 'berserk', specialName: 'BERSERK', bodyScale: 1.38, muscles: true },
   { name: 'Vex', color: '#2ecc71', style: 'Trickster. Freezes a foe solid to combo them.',
     walkSpeed: 220, jumpMul: 1.15, maxHp: 100, punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'freeze', specialName: 'STASIS' },
+    special: 'freeze', specialName: 'STASIS', bodyScale: 0.78 },
   { name: 'Echo', color: '#f1c40f', style: 'Lancer. Hurls a piercing javelin from afar.',
     walkSpeed: 210, jumpMul: 0.95, maxHp: 100, punchDmg: 6, punchRange: 46, kickDmg: 12, kickRange: 60,
-    special: 'javelin', specialName: 'JAVELIN' },
+    special: 'javelin', specialName: 'JAVELIN', bodyScale: 1.07 },
   { name: 'Mirror', color: '#c9d2e0', style: 'Counter. Parries the next hit, then punishes hard.',
     walkSpeed: 205, jumpMul: 1.0,  maxHp: 100, punchDmg: 6, punchRange: 38, kickDmg: 11, kickRange: 50,
     special: 'counter', specialName: 'RIPOSTE' },
@@ -186,19 +186,19 @@ const CHARS = [
     special: 'heal', specialName: 'MEDITATE' },
   { name: 'Crush', color: '#e2792a', style: 'Grappler. Unblockable grab that ignores guard.',
     walkSpeed: 165, jumpMul: 0.85, maxHp: 115, punchDmg: 7, punchRange: 38, kickDmg: 13, kickRange: 48,
-    special: 'grab', specialName: 'SEISMIC GRAB' },
+    special: 'grab', specialName: 'SEISMIC GRAB', bodyScale: 1.22, muscles: true },
   { name: 'Phantom', color: '#6a5cff', style: 'Trickster. Blinks behind the foe for a backstab.',
     walkSpeed: 235, jumpMul: 1.1,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 46,
-    special: 'teleport', specialName: 'SHADOW STEP' },
+    special: 'teleport', specialName: 'SHADOW STEP', bodyScale: 0.85, ghostly: true },
   { name: 'Rune', color: '#ff4fcf', style: 'Trapper. Lays a rune that detonates on contact.',
     walkSpeed: 210, jumpMul: 1.0,  maxHp: 98,  punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 50,
     special: 'trap', specialName: 'RUNE TRAP' },
   { name: 'Bastion', color: '#4d80b0', style: 'Defender. Raises a shield of total invulnerability.',
     walkSpeed: 175, jumpMul: 0.9,  maxHp: 115, punchDmg: 7, punchRange: 38, kickDmg: 13, kickRange: 50,
-    special: 'shield', specialName: 'AEGIS' },
+    special: 'shield', specialName: 'AEGIS', bodyScale: 1.12 },
   { name: 'Gale', color: '#8fd9c8', style: 'Spacer. A gust that hurls foes far away.',
     walkSpeed: 250, jumpMul: 1.2,  maxHp: 92,  punchDmg: 6, punchRange: 36, kickDmg: 10, kickRange: 48,
-    special: 'repel', specialName: 'GUST' },
+    special: 'repel', specialName: 'GUST', bodyScale: 0.9 },
   { name: 'Toxin', color: '#a4d61e', style: 'Poisoner. A venom strike that rots health over time.',
     walkSpeed: 200, jumpMul: 1.0,  maxHp: 95,  punchDmg: 6, punchRange: 42, kickDmg: 11, kickRange: 54,
     special: 'venom', specialName: 'VENOM' },
@@ -207,14 +207,14 @@ const CHARS = [
     special: 'slow', specialName: 'TIME WARP' },
   { name: 'Bramble', color: '#7a8b3a', style: 'Bruiser. Thorns reflect damage back to attackers.',
     walkSpeed: 170, jumpMul: 0.85, maxHp: 120, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
-    special: 'thorns', specialName: 'BRAMBLE' },
+    special: 'thorns', specialName: 'BRAMBLE', bodyScale: 1.15, spiky: true },
   // --- Premium characters (unlocked by buying with wins) ---
   { name: 'Cowboy', color: '#c49a5a', style: 'Gunslinger. Lassos you airborne, then shoots — 38 dmg.',
     walkSpeed: 205, jumpMul: 1.0, maxHp: 95, punchDmg: 6, punchRange: 40, kickDmg: 11, kickRange: 52,
     special: 'lasso', specialName: 'LASSO SHOT', look: 'cowboy', premium: true, costOff: 50, costOn: 25 },
   { name: 'Ninja', color: '#3a3f4a', style: 'Assassin. Slashes with a sword; blinks behind for 5 slashes.',
     walkSpeed: 260, jumpMul: 1.1, maxHp: 88, punchDmg: 7, punchRange: 52, kickDmg: 9, kickRange: 46,
-    special: 'shadowslash', specialName: 'SHADOW SLASH', look: 'ninja', premium: true, costOff: 40, costOn: 20, sword: true },
+    special: 'shadowslash', specialName: 'SHADOW SLASH', look: 'ninja', premium: true, costOff: 40, costOn: 20, sword: true, bodyScale: 0.9 },
   { name: 'King', color: '#8e44ad', style: 'Royalty. Summons 1 guard to fight for him.',
     walkSpeed: 170, jumpMul: 0.9, maxHp: 59, punchDmg: 8, punchRange: 40, kickDmg: 14, kickRange: 50,
     special: 'summon', specialName: 'SUMMON GUARD', look: 'king', premium: true, costOff: 90, costOn: 45 },
@@ -226,7 +226,7 @@ const CHARS = [
     special: 'elemental', specialName: 'CATACLYSM', premium: true, costOff: 100, costOn: 50 },
   { name: 'Berserker', color: '#cc1f3a', style: 'Rager. Hits HARDER the lower his HP. Wild random super.',
     walkSpeed: 215, jumpMul: 1.05, maxHp: 110, punchDmg: 7, punchRange: 40, kickDmg: 13, kickRange: 50,
-    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true, premium: true, costOff: 75, costOn: 38 },
+    special: 'berserker', specialName: 'RAMPAGE', lowHpDamage: true, premium: true, costOff: 75, costOn: 38, bodyScale: 1.42, muscles: true },
 ];
 // Per-character punch/kick animation styles, so each fighter's attacks look different.
 const PUNCH_ANIMS = ['jab', 'cross', 'hook', 'uppercut', 'hammer', 'palm', 'double', 'backfist'];
@@ -1261,14 +1261,21 @@ function drawPunchAnim(f, cx, shoulderY, fc, col, skin) {
 }
 function drawFighter(f) {
   const fc = f.facing, col = f.color, x = f.x;
-  const skin = '#f1c197', trim = darken(col, 0.55);
+  const charData = f.isMinion ? {} : (CHARS[f.charId] || {});
+  const skin = charData.darkSkin ? '#c8906e' : '#f1c197', trim = darken(col, 0.55);
 
   // shadow
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   const airH = GROUND_Y - f.y;
   ctx.beginPath(); ctx.ellipse(x, GROUND_Y + 3, Math.max(9, 18 - airH * 0.03), 5, 0, 0, Math.PI * 2); ctx.fill();
 
-  if (f.state === 'ko') { drawKO(f, col, skin); return; }
+  // Per-character body scale — purely cosmetic, hitboxes unchanged
+  const bodyScale = (!f.isMinion && charData.bodyScale) ? charData.bodyScale : 1.0;
+  if (bodyScale !== 1.0) { ctx.save(); ctx.translate(x, f.y); ctx.scale(bodyScale, bodyScale); ctx.translate(-x, -f.y); }
+  // Ghostly fighters (Phantom) are semi-transparent
+  if (charData.ghostly) { ctx.save(); ctx.globalAlpha = 0.72; }
+
+  if (f.state === 'ko') { drawKO(f, col, skin); if (charData.ghostly) ctx.restore(); if (bodyScale !== 1.0) ctx.restore(); return; }
 
   // Berserk aura (Titan)
   if (f.buffTimer > 0) {
@@ -1304,6 +1311,21 @@ function drawFighter(f) {
   ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(cx - 11, torsoTop + 4, 9, 12); // chest highlight
   ctx.fillStyle = trim; ctx.fillRect(cx - 14, torsoTop + 22, 28, 5);                    // belt
+  // Muscle definition for heavy fighters (Titan, Crush, Berserker)
+  if (charData.muscles) {
+    ctx.save(); ctx.lineWidth = 1.5; ctx.strokeStyle = darken(col, 0.3); ctx.globalAlpha = 0.55;
+    ctx.beginPath(); ctx.moveTo(cx-11, torsoTop+7); ctx.quadraticCurveTo(cx, torsoTop+12, cx+11, torsoTop+7); ctx.stroke(); // pec arch
+    ctx.beginPath(); ctx.moveTo(cx-2, torsoTop+10); ctx.lineTo(cx-2, torsoTop+20); ctx.stroke(); // sternum
+    ctx.beginPath(); ctx.moveTo(cx-7, torsoTop+17); ctx.lineTo(cx+7, torsoTop+17); ctx.stroke(); // ab line
+    ctx.restore();
+  }
+  // Thorns for Bramble
+  if (charData.spiky) {
+    ctx.save(); ctx.strokeStyle = darken(col, 0.2); ctx.lineWidth = 2.5; ctx.globalAlpha = 0.9;
+    const pts = [[cx-14,torsoTop+5,-1,0],[cx-14,torsoTop+18,-1,0],[cx+14,torsoTop+8,1,0],[cx+14,torsoTop+20,1,0],[cx-4,torsoTop,-0.3,-1],[cx+4,torsoTop,0.3,-1]];
+    for (const [bx,by,dx,dy] of pts) { ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+dx*7,by+dy*7); ctx.stroke(); }
+    ctx.restore();
+  }
 
   // ---- ARMS (over torso) ----
   const aSwing = (f.state === 'walk') ? Math.sin(f.walkPhase) * 6 : 0;
@@ -1390,6 +1412,9 @@ function drawFighter(f) {
     ctx.fillStyle = '#300'; ctx.fillRect(bx, by, bw, 4);
     ctx.fillStyle = '#6f6'; ctx.fillRect(bx, by, bw * Math.max(0, f.hp / f.maxHp), 4);
   }
+  // close per-character visual transforms
+  if (charData.ghostly) ctx.restore();
+  if (bodyScale !== 1.0) ctx.restore();
 }
 function drawMarker(f) {
   const x = f.x, y = f.y - (f.state === 'ko' ? 0 : 96);

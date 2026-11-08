@@ -405,7 +405,8 @@ function makeFighter(spec) {
     buffTimer: 0, frozen: 0, poisonTimer: 0, poisonTick: 0, slowTimer: 0, shieldTimer: 0, thornsTimer: 0, kickCooldown: 0, punchCd: 0, hasteTimer: 0, shotTick: 0, customKickCd: 0, customKickActive: false,
     lassoTarget: null, lassoShots: 0, lassoNextShot: 0, koTimer: 0, koSpin: 0,
     ai: { decideTimer: 0, attackCooldown: 0, blockTimer: 0, aggression: 0.3 + Math.random() * 0.5,
-          desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false },
+          desiredDir: 0, wantJump: false, wantBlock: false, wantPunch: false, wantKick: false, wantSpecial: false,
+          phase: 'attack', phaseTimer: 5 + Math.random() * 1.5 },
   };
 }
 function buildLineup(charId, is2v2) {
@@ -1182,6 +1183,13 @@ function updateAI(f, dt) {
   ai.decideTimer -= dt; ai.attackCooldown -= dt; ai.blockTimer -= dt;
   ai.wantBlock = ai.blockTimer > 0;
 
+  // Phase cycle timer
+  ai.phaseTimer -= dt;
+  if (ai.phaseTimer <= 0) {
+    if (ai.phase === 'attack') { ai.phase = 'retreat'; ai.phaseTimer = 3.5; }
+    else                       { ai.phase = 'attack';  ai.phaseTimer = 5 + Math.random() * 1.5; }
+  }
+
   const opp = nearestOpponent(f);
   if (!opp) { ai.desiredDir = 0; return; }
   const dx = opp.x - f.x, dist = Math.abs(dx), dir = dx > 0 ? 1 : -1;
@@ -1190,6 +1198,7 @@ function updateAI(f, dt) {
   const zoner = ZONER_SPECIALS.has(ch.special);
   const hpPct = f.hp / f.maxHp;
   const oppAttacking = opp.attackName === 'punch' || opp.attackName === 'kick' || opp.attackName === 'special';
+  const inCorner = f.x < WALL_L + 60 || f.x > WALL_R - 60;
 
   // --- Read player patterns (adapt after 6+ hits) ---
   const pp = state.playerPatterns || {};
@@ -1217,6 +1226,25 @@ function updateAI(f, dt) {
 
   if (ai.decideTimer > 0) return; // reaction delay — hold last intent
   ai.decideTimer = 0.10 + Math.random() * 0.20;
+
+  // --- Corner escape: if backed into a wall, run toward center to get room ---
+  if (inCorner && ai.phase === 'retreat') {
+    ai.desiredDir = f.x < WALL_L + 60 ? 1 : -1; // run toward center
+    if (Math.random() < 0.25 && f.onGround) ai.wantJump = true;
+    return;
+  }
+
+  // --- Retreat phase: back off and reset ---
+  if (ai.phase === 'retreat' && hpPct > 0.25) {
+    ai.desiredDir = -dir; // move away from opponent
+    // Still dodge if they chase and attack
+    if (oppAttacking && dist < range + 20 && f.onGround && Math.random() < 0.4) ai.wantJump = true;
+    // Block if opponent gets very close while retreating
+    if (oppAttacking && dist < range && Math.random() < 0.35) {
+      ai.blockTimer = 0.22; ai.wantBlock = true;
+    }
+    return;
+  }
 
   // --- Flee when critically low HP (< 25%) ---
   if (hpPct < 0.25) {

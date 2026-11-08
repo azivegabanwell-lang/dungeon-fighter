@@ -274,7 +274,7 @@ function update() {
         if (dp > 380) n.state='wander';
         n.dir = P.x>n.x?1:-1;
         n.vx = n.dir * 2.3;
-        if (dp<55 && n.attackCd===0 && n.onGround) {
+        if (dp<48 && Math.abs(n.y-P.y)<36 && n.attackCd===0) {
           n.attackCd=85; n.scratchAnim=14;
           if (P.invincible===0) {
             P.hp-=12; P.invincible=45; P.vx=n.dir*3;
@@ -296,7 +296,7 @@ function update() {
       if (target) {
         n.dir = target.x>n.x?1:-1;
         n.vx = n.dir*2.6;
-        if (distX(n,target)<52 && n.attackCd===0) {
+        if (distX(n,target)<48 && Math.abs(n.y-target.y)<36 && n.attackCd===0) {
           n.attackCd=95; n.scratchAnim=14;
           target.hp-=12; target.invincible=22; target.vx=n.dir*4;
           float(target.x, target.y-30,'-12','#ff88aa');

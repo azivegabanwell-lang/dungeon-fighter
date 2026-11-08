@@ -1694,7 +1694,7 @@ function update(dt) {
         adminCode = ''; gameState = 'adminCode';
       }
       // Back to Games hub
-      if (mouse.x >= W/2-80 && mouse.x <= W/2+80 && mouse.y >= H-38 && mouse.y <= H-10) {
+      if (mouse.x >= 10 && mouse.x <= 150 && mouse.y >= 10 && mouse.y <= 38) {
         window.location.href = 'index.html';
       }
     }
@@ -4188,14 +4188,15 @@ function drawStart() {
   const lb0 = loadLeaderboard();
   if (lb0.length > 0) ctx.fillText(`Best: Lv ${lb0[0].level} — ${lb0[0].weapon}`, W/2, 566 + off + 22);
 
-  // Back to Games link
-  const backHov = mouse.x >= W/2-80 && mouse.x <= W/2+80 && mouse.y >= H-38 && mouse.y <= H-10;
+  // Back to Games link — top left corner
+  const backHov = mouse.x >= 10 && mouse.x <= 150 && mouse.y >= 10 && mouse.y <= 38;
   ctx.fillStyle = backHov ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)';
-  ctx.fillRect(W/2-80, H-38, 160, 28);
+  ctx.fillRect(10, 10, 140, 28);
   ctx.strokeStyle = backHov ? '#888' : '#444'; ctx.lineWidth = 1;
-  ctx.strokeRect(W/2-80, H-38, 160, 28);
+  ctx.strokeRect(10, 10, 140, 28);
   ctx.fillStyle = backHov ? '#ccc' : '#666'; ctx.font = '11px monospace';
-  ctx.fillText('← Back to Games', W/2, H-19);
+  ctx.textAlign = 'left';
+  ctx.fillText('← Back to Games', 18, 29);
 
   ctx.textAlign = 'left';
 }

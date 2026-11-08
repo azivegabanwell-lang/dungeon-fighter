@@ -1248,7 +1248,13 @@ function updateAI(f, dt) {
 
   // --- Flee when critically low HP (< 25%) ---
   if (hpPct < 0.25) {
-    ai.desiredDir = -dir; // run away
+    // Stay off the walls: aim for center of arena instead of just "away from opponent"
+    const arenaCenter = (WALL_L + WALL_R) / 2;
+    const nearLeft  = f.x < WALL_L + 90;
+    const nearRight = f.x > WALL_R - 90;
+    if (nearLeft)       ai.desiredDir =  1; // too close to left wall → run right
+    else if (nearRight) ai.desiredDir = -1; // too close to right wall → run left
+    else                ai.desiredDir = -dir; // open space → flee from opponent
     if (dist < range * 1.6 && f.onGround && Math.random() < 0.45) ai.wantJump = true;
     if (oppAttacking && dist < range + 15) {
       ai.blockTimer = 0.25; ai.wantBlock = true;

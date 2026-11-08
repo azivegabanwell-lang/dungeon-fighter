@@ -82,6 +82,13 @@
     <button class="btn" id="btnBack">&larr; Back</button>
   </div>
 
+  <!-- OPPONENT SELECT -->
+  <div class="overlay hidden" id="oppScreen">
+    <h2 id="oppTitle">CHOOSE YOUR OPPONENT</h2>
+    <div class="row" id="oppRow"></div>
+    <button class="btn" id="btnOppBack">&larr; Back</button>
+  </div>
+
   <!-- PAUSE -->
   <div class="overlay hidden" id="pauseScreen">
     <h1>PAUSED</h1>
@@ -409,19 +416,22 @@ function makeFighter(spec) {
           phase: 'attack', phaseTimer: 5 + Math.random() * 1.5 },
   };
 }
-function buildLineup(charId, is2v2) {
+function buildLineup(charId, is2v2, oppCharId) {
   const used = new Set([charId]);
   const pick = () => { let c; do { c = Math.floor(Math.random() * CHARS.length); } while (used.has(c)); used.add(c); return c; };
+  // If oppCharId was provided (not null/undefined), use it as the first enemy; otherwise random.
+  const firstEnemy = (oppCharId != null) ? oppCharId : pick();
+  used.add(firstEnemy);
   if (!is2v2) {
     return [
       { charId, team: 0, isPlayer: true, x: 300, facing: 1 },
-      { charId: pick(), team: 1, isPlayer: false, x: 600, facing: -1 },
+      { charId: firstEnemy, team: 1, isPlayer: false, x: 600, facing: -1 },
     ];
   }
   return [
     { charId, team: 0, isPlayer: true, x: 230, facing: 1 },
     { charId: pick(), team: 0, isPlayer: false, x: 360, facing: 1 },
-    { charId: pick(), team: 1, isPlayer: false, x: 540, facing: -1 },
+    { charId: firstEnemy, team: 1, isPlayer: false, x: 540, facing: -1 },
     { charId: pick(), team: 1, isPlayer: false, x: 670, facing: -1 },
   ];
 }
@@ -433,9 +443,9 @@ function setupRound() {
   state.playerPatterns = { punches: 0, kicks: 0, specials: 0, closeHits: 0, totalHits: 0 };
   state.winPendingTeam = null; state.winPendingTimer = 0;
 }
-function startMatch(charId, is2v2) {
+function startMatch(charId, is2v2, oppCharId) {
   state.is2v2 = is2v2;
-  state.lineup = buildLineup(charId, is2v2);
+  state.lineup = buildLineup(charId, is2v2, oppCharId);
   state.teamRounds = [0, 0];
   state.roundNum = 1;
   setupRound();
@@ -2102,6 +2112,7 @@ let pendingMode = false;
 function hideOverlays() {
   document.getElementById('titleScreen').classList.add('hidden');
   document.getElementById('selectScreen').classList.add('hidden');
+  document.getElementById('oppScreen').classList.add('hidden');
   document.getElementById('matchScreen').classList.add('hidden');
   document.getElementById('pauseScreen').classList.add('hidden');
   document.getElementById('onlineScreen').classList.add('hidden');
@@ -2121,6 +2132,7 @@ function showTitle() {
   hideOverlays();
   document.getElementById('titleScreen').classList.remove('hidden');
 }
+let pendingPlayerCharId = null;
 function showSelect(is2v2) {
   pendingMode = is2v2;
   hideOverlays();
@@ -2131,6 +2143,13 @@ function showSelect(is2v2) {
   if (sr) sr.innerHTML = myAccount
     ? '<p class="small" style="margin-top:6px">Buy more fighters in Account &rarr; 🛒 Shop.</p>'
     : '<p class="small" style="margin-top:6px">Log into an Account to buy &amp; play premium fighters.</p>';
+}
+function showOppSelect(playerCharId) {
+  pendingPlayerCharId = playerCharId;
+  hideOverlays();
+  document.getElementById('oppTitle').textContent = pendingMode ? 'CHOOSE YOUR OPPONENT (2v2)' : 'CHOOSE YOUR OPPONENT';
+  document.getElementById('oppScreen').classList.remove('hidden');
+  buildOppRow(playerCharId);
 }
 function charUnlocked(i) { return !CHARS[i].premium || (myAccount && myAccount.ownedChars.indexOf(i) >= 0); }
 function buildCharRow() {
@@ -2145,13 +2164,40 @@ function buildCharRow() {
       '<div class="nm" style="color:' + ch.color + '">' + ch.name + '</div>' +
       '<div class="st">' + ch.style + '</div>' +
       '<div class="sp">★ ' + ch.specialName + '</div>';
-    b.onclick = () => startMatch(i, pendingMode);
+    b.onclick = () => showOppSelect(i);
+    row.appendChild(b);
+  });
+}
+function buildOppRow(excludeCharId) {
+  const row = document.getElementById('oppRow');
+  row.innerHTML = '';
+  // Random button first
+  const rnd = document.createElement('div');
+  rnd.className = 'charBtn';
+  rnd.innerHTML =
+    '<div class="swatch" style="background:#aaa;font-size:22px;line-height:40px">🎲</div>' +
+    '<div class="nm" style="color:#fff">Random</div>' +
+    '<div class="st">Surprise me!</div>' +
+    '<div class="sp"></div>';
+  rnd.onclick = () => startMatch(pendingPlayerCharId, pendingMode, null);
+  row.appendChild(rnd);
+  CHARS.forEach((ch, i) => {
+    const b = document.createElement('div');
+    b.className = 'charBtn';
+    if (i === excludeCharId) b.style.opacity = '0.45'; // dim but still selectable
+    b.innerHTML =
+      '<div class="swatch" style="background:' + ch.color + '"></div>' +
+      '<div class="nm" style="color:' + ch.color + '">' + ch.name + '</div>' +
+      '<div class="st">' + ch.style + '</div>' +
+      '<div class="sp">★ ' + ch.specialName + '</div>';
+    b.onclick = () => startMatch(pendingPlayerCharId, pendingMode, i);
     row.appendChild(b);
   });
 }
 document.getElementById('btn1v1').onclick = () => showSelect(false);
 document.getElementById('btn2v2').onclick = () => showSelect(true);
 document.getElementById('btnBack').onclick = () => showTitle();
+document.getElementById('btnOppBack').onclick = () => showSelect(pendingMode);
 document.getElementById('btnAgain').onclick = () => showSelect(state.is2v2);
 document.getElementById('btnMenu').onclick = () => showTitle();
 document.getElementById('btnResume').onclick = () => resumeGame();

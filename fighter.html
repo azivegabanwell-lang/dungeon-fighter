@@ -429,6 +429,7 @@ function setupRound() {
   state.projectiles = []; state.shockwaves = []; state.traps = []; state.particles = []; state.floatTexts = []; state.fx = [];
   state.medkits = []; state.medkitTimer = 10;
   state.roundTime = ROUND_TIME; state.hitstop = 0; state.shake = 0;
+  state.playerPatterns = { punches: 0, kicks: 0, specials: 0, closeHits: 0, totalHits: 0 };
   state.winPendingTeam = null; state.winPendingTimer = 0;
 }
 function startMatch(charId, is2v2) {
@@ -577,6 +578,15 @@ function applyHit(a, t, box) {
     } else if (a.controller === 'local') {
       myAccount.dmg += box.dmg; if (killed) myAccount.offKills++;
     }
+  }
+  // Track player playstyle for AI adaptation
+  if (a.controller === 'local' && state.playerPatterns) {
+    const pp = state.playerPatterns;
+    pp.totalHits++;
+    if (a.attackName === 'punch')   pp.punches++;
+    else if (a.attackName === 'kick') pp.kicks++;
+    else                              pp.specials++;
+    if (Math.abs(a.x - t.x) < 100) pp.closeHits++;
   }
   if (t.hp <= 0) startKO(t);
 }
@@ -1178,32 +1188,90 @@ function updateAI(f, dt) {
   const ch = CHARS[f.charId];
   const range = ch.kickRange + f.w;
   const zoner = ZONER_SPECIALS.has(ch.special);
+  const hpPct = f.hp / f.maxHp;
+  const oppAttacking = opp.attackName === 'punch' || opp.attackName === 'kick' || opp.attackName === 'special';
 
-  if (ai.decideTimer > 0) return; // reaction delay → keep last intent
-  ai.decideTimer = 0.10 + Math.random() * 0.22;
+  // --- Read player patterns (adapt after 6+ hits) ---
+  const pp = state.playerPatterns || {};
+  const hits = pp.totalHits || 0;
+  const punchHeavy = hits >= 6 && (pp.punches || 0) / hits > 0.55;  // player loves punching
+  const kickHeavy  = hits >= 6 && (pp.kicks  || 0) / hits > 0.55;  // player loves kicking
+  const rusher     = hits >= 6 && (pp.closeHits || 0) / hits > 0.65; // player always gets in close
 
-  // Use special when meter is full and target is roughly in range
+  // --- Medkit seeking: go get it when below 55% HP ---
+  const mks = (state.medkits || []).filter(mk => mk.y >= GROUND_Y - 15);
+  if (hpPct < 0.55 && mks.length > 0) {
+    let nearest = null, nearDist = Infinity;
+    for (const mk of mks) {
+      const md = Math.abs(mk.x - f.x);
+      if (md < nearDist) { nearDist = md; nearest = mk; }
+    }
+    if (nearest && nearDist < 420) {
+      ai.desiredDir = nearest.x > f.x ? 1 : -1;
+      ai.wantBlock = false;
+      // Still dodge incoming hits while running for the kit
+      if (oppAttacking && dist < range + 20 && f.onGround && Math.random() < 0.5) ai.wantJump = true;
+      return;
+    }
+  }
+
+  if (ai.decideTimer > 0) return; // reaction delay — hold last intent
+  ai.decideTimer = 0.10 + Math.random() * 0.20;
+
+  // --- Flee when critically low HP (< 25%) ---
+  if (hpPct < 0.25) {
+    ai.desiredDir = -dir; // run away
+    if (dist < range * 1.6 && f.onGround && Math.random() < 0.45) ai.wantJump = true;
+    if (oppAttacking && dist < range + 15) {
+      ai.blockTimer = 0.25; ai.wantBlock = true;
+    }
+    return;
+  }
+
+  // --- Use special when meter full ---
   if (f.meter >= MAX_METER && dist < (zoner ? 520 : range + 50) && Math.random() < 0.7) {
     ai.wantSpecial = true; ai.desiredDir = 0; return;
   }
-  // Block if opponent is attacking nearby
-  const oppAttacking = opp.attackName === 'punch' || opp.attackName === 'kick' || opp.attackName === 'special';
-  if (oppAttacking && dist < range + 20 && Math.random() < 0.3 + ai.aggression * 0.35) {
-    ai.blockTimer = 0.30; ai.wantBlock = true; ai.desiredDir = 0; return;
+
+  // --- Dodge/block when opponent attacks ---
+  if (oppAttacking && dist < range + 20) {
+    // Adapt: punch-heavy player → block more; kick-heavy → jump more
+    const blockChance = 0.28 + ai.aggression * 0.3 + (punchHeavy ? 0.22 : 0) + (hpPct < 0.5 ? 0.12 : 0);
+    const jumpChance  = 0.12 + (kickHeavy ? 0.28 : 0) + (hpPct < 0.5 ? 0.08 : 0);
+    const r = Math.random();
+    if (r < blockChance) {
+      ai.blockTimer = 0.28; ai.wantBlock = true; ai.desiredDir = 0; return;
+    } else if (r < blockChance + jumpChance && f.onGround) {
+      ai.wantJump = true;
+      ai.desiredDir = Math.random() < 0.5 ? -dir : 0; // sometimes jump backwards
+      return;
+    }
   }
+
+  // --- Zoner behavior ---
   if (zoner) {
-    if (dist > range) ai.desiredDir = dir;       // move in instead of fleeing
-    else ai.desiredDir = 0;                       // hold at striking range
+    if (dist > range) ai.desiredDir = dir;
+    else ai.desiredDir = 0;
     if (dist < range && ai.attackCooldown <= 0) {
       if (Math.random() < 0.5) ai.wantKick = true; else ai.wantPunch = true;
       ai.attackCooldown = 0.5 + Math.random() * 0.4;
     }
     return;
   }
-  // Melee: approach then attack
+
+  // --- Counter-rusher: back up to bait if player always rushes in ---
+  if (rusher && dist < range * 1.5 && hpPct > 0.4 && Math.random() < 0.32) {
+    ai.desiredDir = -dir;
+    if (Math.random() < 0.18) ai.wantJump = true;
+    return;
+  }
+
+  // --- Standard melee approach & attack ---
   if (dist > range) {
     ai.desiredDir = dir;
-    if (Math.random() < 0.012) ai.wantJump = true;
+    // Jump more when approaching a kick-heavy player (hop over kicks)
+    const jumpChance = 0.012 + (kickHeavy ? 0.025 : 0);
+    if (Math.random() < jumpChance && f.onGround) ai.wantJump = true;
   } else {
     ai.desiredDir = 0;
     if (ai.attackCooldown <= 0) {

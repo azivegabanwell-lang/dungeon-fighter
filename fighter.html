@@ -52,11 +52,95 @@
   .charBtn .sp { font-size: 9px; margin-top: 3px; color: #ffd76b; }
   .swatch { width: 18px; height: 18px; border-radius: 50%; margin: 3px auto; }
   .small { font-size: 12px; color: #889; }
+
+  /* ---- MOBILE TOUCH CONTROLS ---- */
+  #mobileControls {
+    display: none;
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 160px;
+    pointer-events: none;
+    z-index: 20;
+    user-select: none;
+  }
+  #mobileControls.show { display: block; }
+
+  /* D-pad cluster bottom-left */
+  #dpad {
+    position: absolute;
+    left: 14px; bottom: 14px;
+    width: 150px; height: 150px;
+    pointer-events: none;
+  }
+  .dpad-btn {
+    position: absolute;
+    width: 50px; height: 50px;
+    background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.28);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    color: rgba(255,255,255,0.75);
+    pointer-events: all;
+    touch-action: none;
+    cursor: pointer;
+    transition: background 0.08s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dpad-btn.active { background: rgba(255,255,255,0.32); }
+  #dLeft  { left: 0;   top: 50px; }
+  #dRight { left: 100px; top: 50px; }
+  #dUp    { left: 50px; top: 0; }
+  #dDown  { left: 50px; top: 100px; }
+
+  /* Action buttons bottom-right */
+  #actionBtns {
+    position: absolute;
+    right: 14px; bottom: 14px;
+    width: 200px; height: 150px;
+    pointer-events: none;
+  }
+  .act-btn {
+    position: absolute;
+    width: 54px; height: 54px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: bold; letter-spacing: 0.5px;
+    color: #fff;
+    border: 2px solid rgba(255,255,255,0.3);
+    pointer-events: all;
+    touch-action: none;
+    cursor: pointer;
+    transition: filter 0.08s;
+    -webkit-tap-highlight-color: transparent;
+    text-align: center; line-height: 1.1;
+  }
+  .act-btn.active { filter: brightness(1.5); }
+  #abBlock   { background: rgba(80,120,220,0.5);  right: 140px; bottom: 80px; }
+  #abPunch   { background: rgba(255,100,60,0.55); right: 76px;  bottom: 90px; }
+  #abKick    { background: rgba(60,200,100,0.55); right: 10px;  bottom: 80px; }
+  #abSpecial { background: rgba(220,180,0,0.55);  right: 70px;  bottom: 24px; width: 66px; height: 66px; font-size: 10px; }
 </style>
 </head>
 <body>
 <div id="wrap">
   <canvas id="game" width="900" height="540"></canvas>
+
+  <!-- MOBILE CONTROLS -->
+  <div id="mobileControls">
+    <div id="dpad">
+      <div class="dpad-btn" id="dLeft">&#9664;</div>
+      <div class="dpad-btn" id="dRight">&#9654;</div>
+      <div class="dpad-btn" id="dUp">&#9650;</div>
+      <div class="dpad-btn" id="dDown">&#9660;</div>
+    </div>
+    <div id="actionBtns">
+      <div class="act-btn" id="abBlock">BLOCK</div>
+      <div class="act-btn" id="abPunch">PUNCH</div>
+      <div class="act-btn" id="abKick">KICK</div>
+      <div class="act-btn" id="abSpecial">SPECIAL</div>
+    </div>
+  </div>
 
   <!-- TITLE -->
   <div class="overlay" id="titleScreen">
@@ -153,6 +237,100 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 function clearJustPressed() { justPressed.clear(); }
+
+// =====================================================================
+// MOBILE TOUCH CONTROLS
+// =====================================================================
+(function() {
+  // Show controls on touch devices or narrow screens
+  const mc = document.getElementById('mobileControls');
+  function checkTouch() {
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth <= 960) {
+      mc.classList.add('show');
+    }
+  }
+  checkTouch();
+  window.addEventListener('resize', checkTouch);
+
+  // Map button id → key code (and whether it's a justPressed one-shot)
+  const BTN_MAP = {
+    dLeft:    { code: 'KeyA',  oneShot: false },
+    dRight:   { code: 'KeyD',  oneShot: false },
+    dUp:      { code: 'KeyW',  oneShot: true  },
+    dDown:    { code: 'KeyS',  oneShot: false },
+    abBlock:  { code: 'KeyS',  oneShot: false },
+    abPunch:  { code: 'KeyJ',  oneShot: true  },
+    abKick:   { code: 'KeyK',  oneShot: true  },
+    abSpecial:{ code: 'KeyL',  oneShot: true  },
+  };
+
+  // Track which touch IDs are holding which buttons
+  const touchHeld = {}; // touchId → btnId
+
+  function pressBtn(id) {
+    const m = BTN_MAP[id];
+    if (!m) return;
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+    keys[m.code] = true;
+    if (m.oneShot) justPressed.add(m.code);
+  }
+  function releaseBtn(id) {
+    const m = BTN_MAP[id];
+    if (!m) return;
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+    // Only clear key if no other touch is holding the same button
+    const stillHeld = Object.values(touchHeld).some(b => b === id);
+    if (!stillHeld) keys[m.code] = false;
+  }
+
+  function btnFromTarget(target) {
+    // Walk up to find the .dpad-btn or .act-btn
+    let el = target;
+    while (el && el !== mc) {
+      if (el.id && BTN_MAP[el.id]) return el.id;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  mc.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const id = btnFromTarget(document.elementFromPoint(t.clientX, t.clientY));
+      if (id) { touchHeld[t.identifier] = id; pressBtn(id); }
+    }
+  }, { passive: false });
+
+  mc.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const id = touchHeld[t.identifier];
+      if (id) { delete touchHeld[t.identifier]; releaseBtn(id); }
+    }
+  }, { passive: false });
+
+  mc.addEventListener('touchcancel', e => {
+    for (const t of e.changedTouches) {
+      const id = touchHeld[t.identifier];
+      if (id) { delete touchHeld[t.identifier]; releaseBtn(id); }
+    }
+  });
+
+  // Slide your thumb from one button to another
+  mc.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const newId = btnFromTarget(document.elementFromPoint(t.clientX, t.clientY));
+      const oldId = touchHeld[t.identifier];
+      if (newId !== oldId) {
+        if (oldId) { delete touchHeld[t.identifier]; releaseBtn(oldId); }
+        if (newId) { touchHeld[t.identifier] = newId; pressBtn(newId); }
+      }
+    }
+  }, { passive: false });
+})();
 
 // Mouse (for the on-screen pause button)
 const mouse = { x: 0, y: 0 };
@@ -451,6 +629,7 @@ function startMatch(charId, is2v2, oppCharId) {
   setupRound();
   state.mode = 'fight';
   hideOverlays();
+  showMobileControls();
   recordCharUse(charId); // count the character you play (offline)
 }
 
@@ -1381,6 +1560,7 @@ function matchOver(winTeam) {
   document.getElementById('matchSub').textContent =
     teamName(0).toUpperCase() + '  ' + state.teamRounds[0] + ' — ' + state.teamRounds[1] + '  ' + teamName(1).toUpperCase();
   document.getElementById('matchScreen').classList.remove('hidden');
+  hideMobileControls();
   if (myAccount) { if (winTeam === 0) myAccount.offWins++; persistLocal(); pushAccount(); }
 }
 
@@ -2109,6 +2289,14 @@ function gameLoop(t) {
 // SCREENS / UI WIRING
 // =====================================================================
 let pendingMode = false;
+function hideMobileControls() {
+  const mc = document.getElementById('mobileControls');
+  if (mc) mc.style.visibility = 'hidden';
+}
+function showMobileControls() {
+  const mc = document.getElementById('mobileControls');
+  if (mc) mc.style.visibility = '';
+}
 function hideOverlays() {
   document.getElementById('titleScreen').classList.add('hidden');
   document.getElementById('selectScreen').classList.add('hidden');
@@ -2121,15 +2309,18 @@ function hideOverlays() {
 function pauseGame() {
   state.mode = 'paused';
   document.getElementById('pauseScreen').classList.remove('hidden');
+  hideMobileControls();
 }
 function resumeGame() {
   document.getElementById('pauseScreen').classList.add('hidden');
   state.mode = 'fight';
+  showMobileControls();
 }
 function showTitle() {
   teardownNet();
   state = freshState();
   hideOverlays();
+  hideMobileControls();
   document.getElementById('titleScreen').classList.remove('hidden');
 }
 let pendingPlayerCharId = null;

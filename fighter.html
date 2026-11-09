@@ -56,11 +56,11 @@
   /* ---- MOBILE TOUCH CONTROLS ---- */
   #mobileControls {
     display: none;
-    position: absolute;
+    position: fixed;          /* anchored to viewport, not to #wrap */
     left: 0; right: 0; bottom: 0;
     height: 160px;
     pointer-events: none;
-    z-index: 20;
+    z-index: 100;
     user-select: none;
   }
   #mobileControls.show { display: block; }
@@ -123,24 +123,24 @@
 </style>
 </head>
 <body>
+<!-- MOBILE CONTROLS — fixed to viewport, outside #wrap so canvas scaling doesn't affect it -->
+<div id="mobileControls">
+  <div id="dpad">
+    <div class="dpad-btn" id="dLeft">&#9664;</div>
+    <div class="dpad-btn" id="dRight">&#9654;</div>
+    <div class="dpad-btn" id="dUp">&#9650;</div>
+    <div class="dpad-btn" id="dDown">&#9660;</div>
+  </div>
+  <div id="actionBtns">
+    <div class="act-btn" id="abBlock">BLOCK</div>
+    <div class="act-btn" id="abPunch">PUNCH</div>
+    <div class="act-btn" id="abKick">KICK</div>
+    <div class="act-btn" id="abSpecial">SPECIAL</div>
+  </div>
+</div>
+
 <div id="wrap">
   <canvas id="game" width="900" height="540"></canvas>
-
-  <!-- MOBILE CONTROLS -->
-  <div id="mobileControls">
-    <div id="dpad">
-      <div class="dpad-btn" id="dLeft">&#9664;</div>
-      <div class="dpad-btn" id="dRight">&#9654;</div>
-      <div class="dpad-btn" id="dUp">&#9650;</div>
-      <div class="dpad-btn" id="dDown">&#9660;</div>
-    </div>
-    <div id="actionBtns">
-      <div class="act-btn" id="abBlock">BLOCK</div>
-      <div class="act-btn" id="abPunch">PUNCH</div>
-      <div class="act-btn" id="abKick">KICK</div>
-      <div class="act-btn" id="abSpecial">SPECIAL</div>
-    </div>
-  </div>
 
   <!-- TITLE -->
   <div class="overlay" id="titleScreen">
@@ -244,10 +244,24 @@ function clearJustPressed() { justPressed.clear(); }
 (function() {
   // Show controls on touch devices or narrow screens
   const mc = document.getElementById('mobileControls');
+  const gameCanvas = document.getElementById('game');
+
+  // Scale canvas CSS size to fit the viewport (internal resolution stays 900x540)
+  function scaleGame() {
+    const isMobile = mc.classList.contains('show');
+    const ctrlH = isMobile ? 164 : 0;   // leave gap for touch controls
+    const availW = window.innerWidth;
+    const availH = window.innerHeight - ctrlH;
+    const scale = Math.min(availW / 900, availH / 540, 1); // never scale up on desktop
+    gameCanvas.style.width  = Math.round(900 * scale) + 'px';
+    gameCanvas.style.height = Math.round(540 * scale) + 'px';
+  }
+
   function checkTouch() {
     if ('ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth <= 960) {
       mc.classList.add('show');
     }
+    scaleGame(); // re-scale whenever touch state or viewport changes
   }
   checkTouch();
   window.addEventListener('resize', checkTouch);

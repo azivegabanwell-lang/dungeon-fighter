@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arcade Football</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#111; display:flex; justify-content:center; align-items:center; min-height:100vh; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="900" height="540"></canvas>
+<script>
+// === TEAMS ================================================================
+const TEAMS = [
+  { name:'Chiefs',   abbr:'KC',  c1:'#E31837', c2:'#FFB81C' },
+  { name:'49ers',    abbr:'SF',  c1:'#8B0000', c2:'#B3995D' },
+  { name:'Cowboys',  abbr:'DAL', c1:'#003594', c2:'#C0C0C0' },
+  { name:'Eagles',   abbr:'PHI', c1:'#004C54', c2:'#A5ACAF' },
+  { name:'Bills',    abbr:'BUF', c1:'#00338D', c2:'#C60C30' },
+  { name:'Dolphins', abbr:'MIA', c1:'#008E97', c2:'#FC4C02' },
+  { name:'Packers',  abbr:'GB',  c1:'#203731', c2:'#FFB612' },
+  { name:'Patriots', abbr:'NE',  c1:'#002244', c2:'#C60C30' },
+  { name:'Ravens',   abbr:'BAL', c1:'#241773', c2:'#9E7C0C' },
+  { name:'Rams',     abbr:'LAR', c1:'#003594', c2:'#FFA300' },
+  { name:'Bengals',  abbr:'CIN', c1:'#FB4F14', c2:'#000000' },
+  { name:'Bears',    abbr:'CHI', c1:'#0B162A', c2:'#C83803' },
+];
+
+// === LAYOUT ===============================================================
+const W = 900, H = 540;
+const SB = 60;        // scoreboard height
+const FY = SB;        // field top y
+const FH = H - SB;    // field height
+const EZ = 90;        // end zone width
+const FX1 = EZ;       // play field left x
+const FX2 = W - EZ;   // play field right x
+const MY = FY + FH/2; // vertical center of field
+const PR = 18;        // player radius
+const TR = 36;        // tackle collision radius
+
+// === PHYSICS ==============================================================
+const SPD  = 215;
+const ACC  = 2200;
+const FRC  = 0.14;
+const DSH  = 500;   // dash speed
+const DD   = 0.17;  // dash duration
+const DC   = 1.5;   // dash cooldown
+
+// === CANVAS ===============================================================
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// === INPUT ================================================================
+const keys = {}, jp = {};
+document.addEventListener('keydown', e => {
+  const blk = ['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  if (blk.includes(e.code)) e.preventDefault();
+  if (!keys[e.code]) jp[e.code] = true;
+  keys[e.code] = true;
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// === STATE ================================================================
+let state = 'select'; // select | countdown | playing | scored | tackled | over
+let step  = 0;        // 0=P1 picks, 1=P2 picks
+let hover = [0, 1];
+let p1T = null, p2T = null;
+let sc   = [0, 0];
+let poss = 0;         // 0=P1 has ball, 1=P2 has ball
+let tmr  = 0;
+let cdn  = 3;
+let lastScorer = 0;
+let p1 = {}, p2 = {};
+
+// === HELPERS ==============================================================
+function mkP(x, y, fx) {
+  return { x, y, vx:0, vy:0, fx, fy:0, dt:0, dc:0, dvx:0, dvy:0 };
+}
+function resetPlay() {
+  if (poss === 0) {
+    p1 = mkP(W/2,     MY,  1); // P1 carries → runs right
+    p2 = mkP(W/2+170, MY, -1); // P2 defends  → starts right of center
+  } else {
+    p2 = mkP(W/2,     MY, -1); // P2 carries → runs left
+    p1 = mkP(W/2-170, MY,  1); // P1 defends → starts left of center
+  }
+}
+function restart() {
+  sc=[0,0]; poss=0; step=0; hover=[0,1]; p1T=null; p2T=null; state='select';
+}
+
+// === UPDATE ===============================================================
+function update(dt) {
+  if (state==='select')   { updateSelect(dt); return; }
+  if (state==='countdown') {
+    tmr -= dt;
+    if (tmr <= 0) {
+      cdn--;
+      if (cdn < 0)       state = 'playing';
+      else if (cdn === 0) tmr = 0.5;
+      else                tmr = 1;
+    }
+    return;
+  }
+  if (state==='playing')  { updatePlay(dt); return; }
+  if (state==='scored' || state==='tackled') {
+    tmr -= dt;
+    if (tmr <= 0) { poss=1-poss; resetPlay(); cdn=3; tmr=1; state='countdown'; }
+    return;
+  }
+  if (state==='over') {
+    if (jp['Space']||jp['Enter']||jp['KeyE']) restart();
+  }
+}
+
+function updateSelect() {
+  const cols = 4, i = hover[step];
+  if (jp['ArrowRight']||jp['KeyD']) hover[step]=(i+1)%TEAMS.length;
+  if (jp['ArrowLeft'] ||jp['KeyA']) hover[step]=(i-1+TEAMS.length)%TEAMS.length;
+  if (jp['ArrowDown'] ||jp['KeyS']) hover[step]=Math.min(TEAMS.length-1,i+cols);
+  if (jp['ArrowUp']   ||jp['KeyW']) hover[step]=Math.max(0,i-cols);
+  const ok = jp['Space']||jp['Enter']||jp['KeyE']||jp['Slash'];
+  if (ok) {
+    if (step===0) { p1T=TEAMS[hover[0]]; step=1; hover[1]=(hover[0]+1)%TEAMS.length; }
+    else          { p2T=TEAMS[hover[1]]; resetPlay(); cdn=3; tmr=1; state='countdown'; }
+  }
+}
+
+function updatePlay(dt) {
+  moveP(p1, dt,
+    keys['KeyA'], keys['KeyD'], keys['KeyW'], keys['KeyS'],
+    jp['KeyE']||jp['Space']);
+  moveP(p2, dt,
+    keys['ArrowLeft'], keys['ArrowRight'], keys['ArrowUp'], keys['ArrowDown'],
+    jp['Slash']||jp['ShiftRight']||jp['Enter']);
+  clamp(p1); clamp(p2);
+
+  const car = poss===0 ? p1 : p2;
+  const def = poss===0 ? p2 : p1;
+
+  // Tackle
+  const dx=car.x-def.x, dy=car.y-def.y;
+  if (dx*dx+dy*dy < TR*TR) { state='tackled'; tmr=1.8; return; }
+
+  // Touchdown
+  if (poss===0 && p1.x > FX2)   { sc[0]++; lastScorer=0; endPlay(); }
+  else if (poss===1 && p2.x < FX1) { sc[1]++; lastScorer=1; endPlay(); }
+}
+
+function endPlay() {
+  if (sc[0]>=7||sc[1]>=7) state='over';
+  else                     { state='scored'; tmr=2.2; }
+}
+
+function moveP(p, dt, L, R, U, D, dash) {
+  // Dash in progress
+  if (p.dt > 0) {
+    p.dt -= dt;
+    p.x += p.dvx*dt; p.y += p.dvy*dt;
+    if (p.dt <= 0) { p.vx=p.dvx*0.3; p.vy=p.dvy*0.3; }
+    return;
+  }
+  if (p.dc > 0) p.dc -= dt;
+
+  let ax=0, ay=0;
+  if (L) ax-=ACC; if (R) ax+=ACC;
+  if (U) ay-=ACC; if (D) ay+=ACC;
+  if (ax) p.fx = ax>0?1:-1;
+  if (ay) p.fy = ay>0?1:-1;
+
+  p.vx += ax*dt; p.vy += ay*dt;
+  const sp = Math.hypot(p.vx,p.vy);
+  if (sp>SPD) { p.vx=p.vx/sp*SPD; p.vy=p.vy/sp*SPD; }
+  p.vx *= (1-FRC); p.vy *= (1-FRC);
+  p.x  += p.vx*dt; p.y += p.vy*dt;
+
+  if (dash && p.dc<=0) {
+    p.dt=DD; p.dc=DC;
+    const ddx = ax!==0 ? (ax>0?1:-1) : p.fx;
+    const ddy = ay!==0 ? (ay>0?1:-1) : 0;
+    const dl  = Math.hypot(ddx,ddy)||1;
+    p.dvx = ddx/dl*DSH; p.dvy = ddy/dl*DSH;
+  }
+}
+
+function clamp(p) {
+  p.x = Math.max(PR, Math.min(W-PR, p.x));
+  p.y = Math.max(FY+PR, Math.min(H-PR, p.y));
+}
+
+// === DRAW =================================================================
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  if (state==='select') { drawSelect(); return; }
+  drawField(); drawSB(); drawPlayers();
+  if      (state==='countdown') drawCDN();
+  else if (state==='scored')    drawScored();
+  else if (state==='tackled')   drawTackled();
+  else if (state==='over')      drawOver();
+}
+
+function drawField() {
+  ctx.fillStyle='#2d7a2d';
+  ctx.fillRect(0,FY,W,FH);
+
+  // Alternating stripes
+  const sw=(FX2-FX1)/8;
+  for (let i=0;i<8;i++) {
+    if (i%2===0) {
+      ctx.fillStyle='rgba(0,0,0,0.07)';
+      ctx.fillRect(FX1+i*sw,FY,sw,FH);
+    }
+  }
+
+  // End zones: left=P2 scores here, right=P1 scores here
+  ctx.globalAlpha=0.72;
+  ctx.fillStyle=p2T.c1; ctx.fillRect(0,FY,EZ,FH);
+  ctx.fillStyle=p1T.c1; ctx.fillRect(FX2,FY,EZ,FH);
+  ctx.globalAlpha=1;
+
+  // End zone labels
+  ezLabel(EZ/2,     MY, p2T.abbr, p2T.c2, -Math.PI/2);
+  ezLabel(FX2+EZ/2, MY, p1T.abbr, p1T.c2,  Math.PI/2);
+
+  // Yard lines
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1;
+  for (let i=1;i<8;i++) {
+    const x=FX1+i*sw;
+    ctx.beginPath(); ctx.moveTo(x,FY); ctx.lineTo(x,H); ctx.stroke();
+  }
+  // Midfield
+  ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(W/2,FY); ctx.lineTo(W/2,H); ctx.stroke();
+
+  // EZ borders
+  ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=2;
+  ctx.strokeRect(0,FY,EZ,FH);
+  ctx.strokeRect(FX2,FY,EZ,FH);
+}
+
+function ezLabel(x,y,text,color,angle) {
+  ctx.save();
+  ctx.translate(x,y); ctx.rotate(angle);
+  ctx.font='bold 22px Arial';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=color; ctx.fillText(text,0,0);
+  ctx.restore();
+}
+
+function drawSB() {
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,W,SB);
+  ctx.fillStyle=p1T.c1; ctx.fillRect(0,0,W/2-2,SB);
+  ctx.fillStyle=p2T.c1; ctx.fillRect(W/2+2,0,W/2-2,SB);
+
+  ctx.font='bold 13px Arial'; ctx.textBaseline='top';
+  ctx.fillStyle=p1T.c2; ctx.textAlign='left';
+  ctx.fillText('P1 '+p1T.name.toUpperCase(), 10, 7);
+  ctx.fillStyle=p2T.c2; ctx.textAlign='right';
+  ctx.fillText(p2T.name.toUpperCase()+' P2', W-10, 7);
+
+  ctx.font='bold 34px Arial'; ctx.textAlign='center';
+  ctx.textBaseline='middle'; ctx.fillStyle='#fff';
+  ctx.fillText(sc[0], W/2-55, SB/2);
+  ctx.fillText(sc[1], W/2+55, SB/2);
+
+  // Mini football showing possession
+  drawFB(poss===0 ? W/2-20 : W/2+20, SB/2, 10);
+
+  // Controls hint
+  ctx.font='10px Arial'; ctx.fillStyle='rgba(255,255,255,0.3)';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText('P1: WASD + E', 10, SB-4);
+  ctx.textAlign='right';
+  ctx.fillText('P2: Arrows + /', W-10, SB-4);
+
+  ctx.font='11px Arial'; ctx.textAlign='center';
+  ctx.fillStyle='rgba(255,255,255,0.25)';
+  ctx.fillText('First to 7', W/2, SB-6);
+}
+
+function drawFB(x, y, r) {
+  ctx.save(); ctx.translate(x,y);
+  ctx.beginPath();
+  ctx.ellipse(0,0,r,r*0.6,0.3,0,Math.PI*2);
+  ctx.fillStyle='#8B4513'; ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
+  ctx.restore();
+}
+
+function drawPlayers() {
+  const car = poss===0 ? p1 : p2;
+  const def = poss===0 ? p2 : p1;
+  const cT  = poss===0 ? p1T : p2T;
+  const dT  = poss===0 ? p2T : p1T;
+  drawP(def, dT, poss===0?2:1, false);
+  drawP(car, cT, poss===0?1:2, true);
+}
+
+function drawP(p, t, num, hasBall) {
+  ctx.save(); ctx.translate(p.x, p.y);
+
+  // Shadow
+  ctx.beginPath(); ctx.ellipse(0,5,PR,PR*0.35,0,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fill();
+
+  // Dash glow
+  if (p.dt > 0) {
+    ctx.beginPath(); ctx.arc(0,0,PR+8,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,255,0,0.75)'; ctx.lineWidth=4; ctx.stroke();
+  }
+
+  // Body
+  ctx.beginPath(); ctx.arc(0,0,PR,0,Math.PI*2);
+  ctx.fillStyle=t.c1; ctx.fill();
+  ctx.strokeStyle=t.c2; ctx.lineWidth=3; ctx.stroke();
+
+  // Number
+  ctx.font='bold 13px Arial'; ctx.textAlign='center';
+  ctx.textBaseline='middle'; ctx.fillStyle=t.c2;
+  ctx.fillText(num,0,1);
+
+  // Football
+  if (hasBall) {
+    const bx = p.fx*(PR+2);
+    ctx.beginPath(); ctx.ellipse(bx,-3,7,4.5,0.3,0,Math.PI*2);
+    ctx.fillStyle='#8B4513'; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
+  }
+
+  // Dash CD arc
+  if (p.dc>0 && p.dt<=0) {
+    const f=1-p.dc/DC;
+    ctx.beginPath();
+    ctx.arc(0,0,PR+5,-Math.PI/2,-Math.PI/2+f*Math.PI*2);
+    ctx.strokeStyle='rgba(255,255,100,0.5)'; ctx.lineWidth=2; ctx.stroke();
+  }
+
+  // Role badge
+  ctx.font='9px Arial'; ctx.textAlign='center';
+  ctx.textBaseline='bottom'; ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText(hasBall?'OFF':'DEF', 0, -PR-2);
+
+  // Direction arrow for ball carrier
+  if (hasBall) {
+    const dir = poss===0 ? 1 : -1; // P1 runs right, P2 runs left
+    const ax2 = dir*(PR+16), ay2 = 0;
+    ctx.beginPath();
+    ctx.moveTo(dir*(PR+8), 0);
+    ctx.lineTo(ax2, ay2);
+    ctx.strokeStyle='rgba(255,255,0,0.7)'; ctx.lineWidth=2; ctx.stroke();
+    // arrowhead
+    ctx.beginPath();
+    ctx.moveTo(ax2, ay2);
+    ctx.lineTo(ax2-dir*7, -4);
+    ctx.lineTo(ax2-dir*7,  4);
+    ctx.closePath();
+    ctx.fillStyle='rgba(255,255,0,0.7)'; ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawCDN() {
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,FY,W,FH);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  if (cdn>0) {
+    ctx.font='bold 110px Arial'; ctx.fillStyle='#fff';
+    ctx.fillText(cdn, W/2, MY);
+  } else {
+    ctx.font='bold 90px Arial'; ctx.fillStyle='#7fff7f';
+    ctx.fillText('GO!', W/2, MY);
+  }
+  // Show who has ball
+  ctx.font='bold 20px Arial'; ctx.fillStyle='rgba(255,255,255,0.75)';
+  const carrier = poss===0 ? p1T : p2T;
+  ctx.fillText(`P${poss+1} ${carrier.name} has the ball`, W/2, MY+90);
+}
+
+function drawScored() {
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,FY,W,FH);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold 70px Arial'; ctx.fillStyle='#FFD700';
+  ctx.fillText('TOUCHDOWN!', W/2, MY-36);
+  const t = lastScorer===0 ? p1T : p2T;
+  ctx.font='bold 28px Arial'; ctx.fillStyle='#fff';
+  ctx.fillText(`P${lastScorer+1} ${t.name}  •  ${sc[0]} – ${sc[1]}`, W/2, MY+26);
+  ctx.font='16px Arial'; ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText('Possession switches…', W/2, MY+66);
+}
+
+function drawTackled() {
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,FY,W,FH);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold 70px Arial'; ctx.fillStyle='#ff5555';
+  ctx.fillText('TACKLED!', W/2, MY-30);
+  ctx.font='bold 20px Arial'; ctx.fillStyle='#ccc';
+  ctx.fillText('Possession switches…', W/2, MY+26);
+}
+
+function drawOver() {
+  ctx.fillStyle='rgba(0,0,0,0.78)'; ctx.fillRect(0,FY,W,FH);
+  const win = sc[0]>=7 ? 0 : 1;
+  const t   = win===0 ? p1T : p2T;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold 28px Arial'; ctx.fillStyle=t.c2||'#FFD700';
+  ctx.fillText(`P${win+1} ${t.name.toUpperCase()} WIN!`, W/2, MY-72);
+  ctx.font='bold 72px Arial'; ctx.fillStyle='#fff';
+  ctx.fillText(`${sc[0]} – ${sc[1]}`, W/2, MY);
+  ctx.font='bold 20px Arial'; ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText('Press Space or Enter to play again', W/2, MY+65);
+}
+
+function drawSelect() {
+  ctx.fillStyle='#0d1f0d'; ctx.fillRect(0,0,W,H);
+
+  ctx.font='bold 32px Arial'; ctx.textAlign='center';
+  ctx.textBaseline='top'; ctx.fillStyle='#fff';
+  ctx.fillText(step===0?'P1 — PICK YOUR TEAM':'P2 — PICK YOUR TEAM', W/2, 18);
+
+  ctx.font='15px Arial';
+  ctx.fillStyle = step===0 ? '#88aaff' : '#ffaa88';
+  ctx.fillText('Arrow keys or WASD to browse  •  Space / Enter to pick', W/2, 58);
+
+  const cols=4, cW=190, cH=100, gap=10;
+  const gW=cols*cW+(cols-1)*gap;
+  const sx=(W-gW)/2, sy=85;
+
+  TEAMS.forEach((t,i) => {
+    const col=i%cols, row=Math.floor(i/cols);
+    const x=sx+col*(cW+gap), y=sy+row*(cH+gap);
+    const isHov   = hover[step]===i;
+    const isOther = step===1 && hover[0]===i;
+
+    ctx.fillStyle = isHov ? t.c1 : 'rgba(255,255,255,0.07)';
+    rr(x,y,cW,cH,12); ctx.fill();
+
+    if (isHov) {
+      ctx.strokeStyle='#fff'; ctx.lineWidth=3;
+      rr(x,y,cW,cH,12); ctx.stroke();
+    }
+    if (isOther) {
+      ctx.strokeStyle='#88aaff'; ctx.lineWidth=2;
+      ctx.setLineDash([5,4]); rr(x,y,cW,cH,12); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    ctx.font='bold 30px Arial'; ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillStyle = isHov ? t.c2 : '#fff';
+    ctx.fillText(t.abbr, x+cW/2, y+36);
+
+    ctx.font='14px Arial';
+    ctx.fillStyle = isHov ? 'rgba(255,255,255,0.9)' : '#aaa';
+    ctx.fillText(t.name, x+cW/2, y+64);
+
+    // Color swatches
+    ctx.beginPath(); ctx.arc(x+cW/2-12,y+86,6,0,Math.PI*2);
+    ctx.fillStyle=t.c1; ctx.fill();
+    ctx.beginPath(); ctx.arc(x+cW/2+12,y+86,6,0,Math.PI*2);
+    ctx.fillStyle=t.c2; ctx.fill();
+  });
+
+  if (step===1 && p1T) {
+    ctx.font='14px Arial'; ctx.textAlign='left';
+    ctx.textBaseline='bottom'; ctx.fillStyle='#88aaff';
+    ctx.fillText('P1 chose: '+p1T.name, 20, H-10);
+  }
+}
+
+function rr(x,y,w,h,r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+// === LOOP =================================================================
+let last=performance.now();
+function loop(ts) {
+  const dt=Math.min((ts-last)/1000,0.05);
+  last=ts;
+  update(dt);
+  draw();
+  for (const k in jp) delete jp[k];
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
